@@ -10,7 +10,7 @@
 const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding', 'road/matchToRoads500', 'road/nearToRoad']);
 const ORIGINS = ['https://zenithworks.app', 'https://www.zenithworks.app', 'https://actparty.app', 'null'];
 // 한 사람(IP)이 무료 한도를 다 쓰지 못하게 하루 한도 (같은 서버 조각 안에서 세는 대략값)
-const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5 };
+const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, kakao: 60 };
 const ipDay = new Map();
 let day = '';
 const incCache = new Map();
@@ -38,7 +38,7 @@ function overDay(ip, what) {
 }
 
 // 티맵 무료 하루 한도 (SK open API 무료 요금제)
-const QUOTA = { routes: 1000, traffic: 1000, match: 200 };
+const QUOTA = { routes: 1000, traffic: 1000, match: 200, kakao: 3000 }; // 카카오는 무료 한도 미확인이라 하루 3,000에서 스스로 멈춤
 export class Counter {
   constructor(ctx) { this.ctx = ctx; }
   async fetch(req) {
@@ -145,6 +145,21 @@ export default {
       if (incCache.size > 200) incCache.clear();
       await cache.put(cacheKey, new Response(JSON.stringify(res), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=300' } }));
       return json(res, 200, h);
+    }
+
+    // 카카오모빌리티 길찾기 (비밀 값 KAKAO_KEY). 하루 전체 3,000회에서 멈춤
+    if (path === 'kakao/directions') {
+      if (!env.KAKAO_KEY) return json({ error: '서버에 카카오 키가 없습니다' }, 503, h);
+      if (overDay(ip, 'kakao')) return json({ error: '오늘 한도(LIMIT)를 넘었습니다' }, 429, h);
+      try {
+        const used = await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/get?d=' + kst().slice(0, 10))).json();
+        if ((used.kakao || 0) >= QUOTA.kakao) return json({ error: '오늘 카카오 무료 한도(LIMIT)를 다 썼습니다' }, 429, h);
+      } catch { /* 카운터 실패해도 진행 */ }
+      const q = new URLSearchParams();
+      for (const k of ['origin', 'destination', 'waypoints', 'priority', 'car_fuel', 'avoid', 'alternatives', 'road_details', 'summary']) { const v = url.searchParams.get(k); if (v) q.set(k, v); }
+      count(env, ctx, 'kakao');
+      const r = await fetch('https://apis-navi.kakaomobility.com/v1/directions?' + q, { headers: { Authorization: 'KakaoAK ' + env.KAKAO_KEY } });
+      return new Response(await r.arrayBuffer(), { status: r.status, headers: { ...h, 'Content-Type': 'application/json' } });
     }
 
     if (path.startsWith('tmap/')) {
