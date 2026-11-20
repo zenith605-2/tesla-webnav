@@ -12,6 +12,7 @@ const PER_MIN = 120;
 const PER_DAY = 3000;
 
 const perIp = new Map<string, { t: number; n: number }>();
+const incCache = new Map<string, { t: number; d: unknown }>();
 let day = '';
 let dayCount = 0;
 
@@ -95,12 +96,34 @@ Deno.serve(async (req) => {
   const lim = limited(ip);
   if (lim) return json({ error: lim }, 429, h);
 
+  // 돌발(사고·공사·통제): 티맵 교통정보(zoom 11, 약 100km 범위, 1MB 넘음)를 서버에서 받아 지점만 골라 보냄. 0.2° 칸마다 3분 캐시
+  if (path === 'inc') {
+    const key = Deno.env.get('TMAP_KEY');
+    if (!key) return json({ error: '서버에 티맵 키가 없습니다' }, 503, h);
+    const la = Math.round(Number(url.searchParams.get('lat')) * 5) / 5, lo = Math.round(Number(url.searchParams.get('lon')) * 5) / 5;
+    if (!(la > 33 && la < 39 && lo > 124 && lo < 132)) return json({ error: '좌표 오류' }, 400, h);
+    const ck = la + ',' + lo, hit = incCache.get(ck);
+    if (hit && Date.now() - hit.t < 180e3) return json(hit.d, 200, h);
+    const r = await fetch('https://apis.openapi.sk.com/tmap/traffic?version=1&format=json&reqCoordType=WGS84GEO&resCoordType=WGS84GEO&zoomLevel=11&trafficType=AUTO&centerLat=' + la + '&centerLon=' + lo, { headers: { appKey: key, Accept: 'application/json' } });
+    if (!r.ok) return json({ error: 'HTTP ' + r.status }, 502, h);
+    const d = await r.json();
+    // deno-lint-ignore no-explicit-any
+    const out = (d.features || []).filter((f: any) => f.geometry?.type === 'Point' && f.properties?.isAccidentNode === 'Y').map((f: any) => {
+      const p = f.properties, c = f.geometry.coordinates;
+      return [Math.round(c[1] * 1e5) / 1e5, Math.round(c[0] * 1e5) / 1e5, p.accidentUpperName || '', p.accidentDetailName || '', String(p.description || '').split(' / ')[0].slice(0, 160)];
+    });
+    const res = { at: Date.now(), list: out };
+    incCache.set(ck, { t: Date.now(), d: res });
+    if (incCache.size > 200) incCache.clear();
+    return json(res, 200, h);
+  }
+
   let target: string;
   const fwd: Record<string, string> = { Accept: 'application/json' };
   if (path.startsWith('tmap/')) {
     const p = path.slice(5);
     const key = Deno.env.get('TMAP_KEY');
-    if (!TMAP_PATHS.has(p)) return json({ error: '허용되지 않은 경로' }, 404, h);
+    if (!TMAP_PATHS.has(p) && !/^pois\/\d+$/.test(p)) return json({ error: '허용되지 않은 경로' }, 404, h);
     if (!key) return json({ error: '서버에 티맵 키가 없습니다' }, 503, h);
     target = 'https://apis.openapi.sk.com/tmap/' + p + url.search;
     fwd.appKey = key;
