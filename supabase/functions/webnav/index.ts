@@ -5,7 +5,7 @@
 // 지금은 사용자 혼자 시험하는 단계라 제한은 가볍게: IP 당 분당 120회, 인스턴스당 하루 3,000회.
 // 옮길 때: 이 파일을 다른 곳(다른 Supabase 프로젝트, Cloudflare Workers 등)에 올리고 비밀 값만 다시 넣으면 된다.
 
-const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding']);
+const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding', 'road/matchToRoads500', 'road/nearToRoad']);
 const EV_OPS = new Set(['getChargerInfo', 'getChargerStatus']);
 const ORIGINS = ['https://actparty.app', 'null', 'file://'];
 const PER_MIN = 120;
@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
   const path = url.pathname.replace(/^.*?\/webnav\/?/, '');
 
   if (path === 'ping') {
-    return json({ ok: true, tmap: !!Deno.env.get('TMAP_KEY'), ev: !!Deno.env.get('DATA_GO_KR_KEY') }, 200, h);
+    return json({ ok: true, tmap: !!Deno.env.get('TMAP_KEY'), ev: !!Deno.env.get('DATA_GO_KR_KEY'), its: !!Deno.env.get('ITS_KEY') }, 200, h);
   }
   // 관리자 전용: 안내 음성 녹음용 제미나이 TTS (WEBNAV_ADMIN 토큰이 맞을 때만). 키는 서버 비밀 값 GEMINI_API_KEY.
   if (path.startsWith('admin/')) {
@@ -64,6 +64,18 @@ Deno.serve(async (req) => {
       const d = await r.json();
       return json({ status: r.status, models: (d.models || []).map((m: { name: string }) => m.name).filter((n: string) => /tts|audio/i.test(n)) }, 200, h);
     }
+    if (path === 'admin/ask' && req.method === 'POST') {
+      // 검토 회의용: 여러 번 주고받은 대화(contents)를 그대로 넘겨 답을 받는다
+      const b = await req.json();
+      const model = b.model || 'gemini-3.5-flash';
+      const r = await fetch(G + 'models/' + model + ':generateContent?key=' + gk, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: b.contents, generationConfig: { maxOutputTokens: b.max || 4000 } }),
+      });
+      const d = await r.json();
+      const text = (d?.candidates?.[0]?.content?.parts || []).map((p: { text?: string }) => p.text || '').join('');
+      return json({ status: r.status, text, usage: d.usageMetadata, error: text ? undefined : JSON.stringify(d).slice(0, 300) }, 200, h);
+    }
     if (path === 'admin/text') {
       // 키 상태 확인용: 아주 짧은 글 생성 한 번 (잔액·한도 확인)
       const model = url.searchParams.get('model') || 'gemini-3.5-flash-lite';
@@ -73,6 +85,20 @@ Deno.serve(async (req) => {
       });
       const t = await r.text();
       return json({ status: r.status, body: t.slice(0, 500) }, 200, h);
+    }
+    if (path === 'admin/probe') {
+      // 외부 주소 연결 확인용(관리자): ?u=주소 → 상태·걸린 시간·앞부분
+      const t0 = Date.now(), u = url.searchParams.get('u') || '';
+      try { const r = await fetch(u.replace('ITSKEY', Deno.env.get('ITS_KEY') || ''), { signal: AbortSignal.timeout(15000) }); const t = await r.text(); return json({ status: r.status, ms: Date.now() - t0, head: t.slice(0, 200), region: Deno.env.get('SB_REGION') || '' }, 200, h); }
+      catch (e) { return json({ error: String(e), ms: Date.now() - t0 }, 200, h); }
+    }
+    if (path === 'admin/logs') {
+      const SB = Deno.env.get('SUPABASE_URL')!, SK = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const H = { Authorization: 'Bearer ' + SK, apikey: SK, 'Content-Type': 'application/json' };
+      const f = url.searchParams.get('f');
+      if (f) { const r = await fetch(`${SB}/storage/v1/object/webnav-logs/${f}`, { headers: H }); return new Response(await r.text(), { status: r.status, headers: { ...h, 'Content-Type': 'application/json' } }); }
+      const r = await fetch(`${SB}/storage/v1/object/list/webnav-logs`, { method: 'POST', headers: H, body: JSON.stringify({ prefix: url.searchParams.get('d') || '', limit: 1000, sortBy: { column: 'name', order: 'asc' } }) });
+      return new Response(await r.text(), { status: r.status, headers: { ...h, 'Content-Type': 'application/json' } });
     }
     if (path === 'admin/tts' && req.method === 'POST') {
       const b = await req.json();
@@ -91,6 +117,24 @@ Deno.serve(async (req) => {
       return json({ mime: part.inlineData.mimeType, data: part.inlineData.data, usage: d.usageMetadata }, 200, h);
     }
     return json({ error: '없는 경로' }, 404, h);
+  }
+  // 주행 기록(시험용, 페이지에서 ?log=1 로 켠 차만 보냄): Storage 비공개 버킷 webnav-logs/<날짜>/<세션>-<시각>.json. 조회는 관리자 경로
+  if (path === 'log' && req.method === 'POST') {
+    const lip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x', ll = limited(lip);
+    if (ll) return json({ error: ll }, 429, h);
+    const body = await req.text();
+    if (body.length > 400000) return json({ error: 'too big' }, 413, h);
+    const sid = (url.searchParams.get('sid') || 'x').replace(/[^a-z0-9]/gi, '').slice(0, 16);
+    const kst = new Date(Date.now() + 9 * 3600e3).toISOString();
+    const SB = Deno.env.get('SUPABASE_URL')!, SK = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const put = () => fetch(`${SB}/storage/v1/object/webnav-logs/${kst.slice(0, 10)}/${sid}-${kst.slice(11, 19).replace(/:/g, '')}.json`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + SK, apikey: SK, 'Content-Type': 'application/json', 'x-upsert': 'true' }, body });
+    let r = await put();
+    if (r.status === 404 || r.status === 400) {
+      await fetch(`${SB}/storage/v1/bucket`, { method: 'POST', headers: { Authorization: 'Bearer ' + SK, apikey: SK, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'webnav-logs', name: 'webnav-logs', public: false }) });
+      r = await put();
+    }
+    return json({ ok: r.ok, status: r.status }, r.ok ? 200 : 502, h);
   }
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x';
   const lim = limited(ip);
@@ -115,6 +159,33 @@ Deno.serve(async (req) => {
     const res = { at: Date.now(), list: out };
     incCache.set(ck, { t: Date.now(), d: res });
     if (incCache.size > 200) incCache.clear();
+    return json(res, 200, h);
+  }
+
+  // 경로 CCTV: 국가교통정보센터 ITS (비밀 값 ITS_KEY). 영역(0.05° 칸으로 반올림) 안 고속도로(ex)+국도(its) 실시간 영상 주소. 5분 캐시
+  if (path === 'cctv') {
+    const key = Deno.env.get('ITS_KEY');
+    if (!key) return json({ error: 'no its key', list: [] }, 503, h);
+    const r5 = (v: string | null, up: boolean) => { const n = Number(v) * 20; return (up ? Math.ceil(n) : Math.floor(n)) / 20; };
+    const x0 = r5(url.searchParams.get('minX'), false), x1 = r5(url.searchParams.get('maxX'), true);
+    const y0 = r5(url.searchParams.get('minY'), false), y1 = r5(url.searchParams.get('maxY'), true);
+    if (!(x0 > 124 && x1 < 132 && y0 > 33 && y1 < 39 && x1 - x0 <= 1.5 && y1 - y0 <= 1.5)) return json({ error: '영역 오류' }, 400, h);
+    const ck = 'c' + [x0, x1, y0, y1].join(','), hit = incCache.get(ck);
+    if (hit && Date.now() - hit.t < 300e3) return json(hit.d, 200, h);
+    const out: unknown[] = [];
+    for (const type of ['ex', 'its']) {
+      try {
+        const r = await fetch(`https://openapi.its.go.kr:9443/cctvInfo?apiKey=${key}&type=${type}&cctvType=1&minX=${x0}&maxX=${x1}&minY=${y0}&maxY=${y1}&getType=json`);
+        const d = await r.json();
+        // deno-lint-ignore no-explicit-any
+        for (const c of (d?.response?.data || []) as any[]) {
+          if (!c.cctvurl) continue;
+          out.push([Math.round(Number(c.coordy) * 1e5) / 1e5, Math.round(Number(c.coordx) * 1e5) / 1e5, String(c.cctvname || '').trim(), c.cctvurl, type]);
+        }
+      } catch (_e) { /* 한쪽이 실패해도 나머지는 보냄 */ }
+    }
+    const res = { at: Date.now(), list: out };
+    incCache.set(ck, { t: Date.now(), d: res });
     return json(res, 200, h);
   }
 

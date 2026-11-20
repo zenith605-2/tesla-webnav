@@ -6,3 +6,6 @@ HANDOFF.md
 CLAUDE.md
 .admin_token
 .tesla_private_key.pem
+data/logs/
+.its_key
+supabase/.temp/
