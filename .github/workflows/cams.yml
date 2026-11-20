@@ -15,6 +15,8 @@ jobs:
           python-version: '3.12'
       - run: python tools/fetch_cams.py
       - run: python tools/build_cams.py docs/cams.json
+      - name: 과속방지턱·슈퍼차저·휴게소 (실패해도 카메라 갱신은 계속)
+        run: python tools/build_extra.py docs || echo "extra 실패"
       - name: 바뀐 게 있으면 올리기
         run: |
           if git diff --quiet -- docs; then echo "변화 없음"; exit 0; fi

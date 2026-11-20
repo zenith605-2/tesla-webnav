@@ -1,0 +1,155 @@
+"""과속방지턱 + 슈퍼차저·휴게소·졸음쉼터 -> 웹 내비용 가벼운 JSON.
+
+받기(키 없음):
+  과속방지턱: 국토부 전국과속방지턱표준데이터 data.go.kr 15028195 (위경도 그대로)
+              + OpenStreetMap traffic_calming=bump/hump/table (공공데이터에 없는 지역 보충)
+  슈퍼차저·휴게소·졸음쉼터: OpenStreetMap (Overpass API)
+출력 (지정한 폴더에):
+  bumps.json  [[위도, 경도], ...]
+  pois.json   {"sc": [[위도, 경도, 이름, 충전기 수]], "rest": [[위도, 경도, 이름, 종류]]}
+              종류: 'S' 휴게소, 'R' 졸음쉼터·쉼터
+  extra-ver.json  {"ver", "bumps", "sc", "rest"}
+사용: python tools/build_extra.py docs        (받고 만들기)
+      python tools/build_extra.py docs --cached (data/ 에 받아 둔 것으로만 만들기)
+"""
+import hashlib
+import json
+import sys
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+RAW = ROOT / 'data/raw'
+OSM = ROOT / 'data/osm'
+UA = {'User-Agent': 'Mozilla/5.0 (webnav-data)'}
+OVERPASS = 'https://overpass-api.de/api/interpreter'
+KR = 'area["ISO3166-1"="KR"][admin_level=2]->.k;'
+
+
+def get_json(url, headers=None, data=None, timeout=240):
+    req = urllib.request.Request(url, headers={**UA, **(headers or {})}, data=data)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def fetch_bumps_public():
+    pk, base = '15028195', 'https://www.data.go.kr'
+    h = {'Referer': f'{base}/data/{pk}/standard.do', 'X-Requested-With': 'XMLHttpRequest'}
+    col = get_json(f'{base}/download/columList.json?pk={pk}&ext=JSON', h)
+    t, total, rows = col['tableVO'], int(col['totalCount']), []
+    for page in range(1, total // 10000 + 2):
+        q = [('colNmList', c) for c in t['colNmList']] + [
+            ('totalCount', total), ('svcTableNm', t['svcTableNm']), ('perPage', 10000), ('page', page)]
+        d = get_json(f'{base}/download/standard.json?publicDataPk={pk}&' + urllib.parse.urlencode(q), h)
+        rows += d if isinstance(d, list) else next(v for v in d.values() if isinstance(v, list))
+        time.sleep(1)
+    if len(rows) < total * 0.95:
+        raise SystemExit(f'과속방지턱 행이 너무 적음: {len(rows)} / {total}')
+    return rows
+
+
+def overpass(q):
+    for i in range(3):
+        try:
+            return get_json(OVERPASS, data=urllib.parse.urlencode({'data': q}).encode())
+        except Exception as e:  # 서버가 바쁘면 잠깐 쉬고 다시
+            print('overpass 재시도', i + 1, e)
+            time.sleep(30)
+    raise SystemExit('overpass 실패')
+
+
+def fetch_all():
+    RAW.mkdir(parents=True, exist_ok=True)
+    OSM.mkdir(parents=True, exist_ok=True)
+    (RAW / 'bumps_all.json').write_text(json.dumps(fetch_bumps_public(), ensure_ascii=False), encoding='utf-8')
+    c = overpass('[out:json][timeout:180];' + KR +
+                 '(node["traffic_calming"~"^(bump|hump|table|yes)$"](area.k););out skel;')
+    (OSM / 'calming.json').write_text(json.dumps(c), encoding='utf-8')
+    p = overpass('[out:json][timeout:180];' + KR +
+                 '(nwr["amenity"="charging_station"]["brand"~"Tesla",i](area.k);'
+                 'nwr["amenity"="charging_station"]["operator"~"Tesla|테슬라",i](area.k);'
+                 'nwr["amenity"="charging_station"]["name"~"Supercharger|슈퍼차저|수퍼차저",i](area.k);'
+                 'nwr["highway"~"^(services|rest_area)$"](area.k););out center tags;')
+    (OSM / 'pois.json').write_text(json.dumps(p, ensure_ascii=False), encoding='utf-8')
+
+
+def ll(e):
+    if 'lat' in e:
+        return e['lat'], e['lon']
+    c = e.get('center') or {}
+    return c.get('lat'), c.get('lon')
+
+
+def build(out_dir):
+    out_dir = Path(out_dir)
+    # 과속방지턱: 공공데이터 먼저, OSM 은 약 15m 안에 이미 있으면 뺀다
+    bumps, cells = [], set()
+
+    def add(la, lo):
+        if not (33 < la < 39 and 124 < lo < 132):
+            return
+        cx, cy = round(la / 0.00015), round(lo / 0.00018)
+        if any((cx + a, cy + b) in cells for a in (-1, 0, 1) for b in (-1, 0, 1)):
+            return
+        cells.add((cx, cy))
+        bumps.append([round(la, 5), round(lo, 5)])
+
+    pub = json.load(open(RAW / 'bumps_all.json', encoding='utf-8'))
+    for x in pub:
+        try:
+            add(float(x['LATITUDE']), float(x['LONGITUDE']))
+        except (ValueError, TypeError):
+            pass
+    n_pub = len(bumps)
+    for e in json.load(open(OSM / 'calming.json'))['elements']:
+        add(e['lat'], e['lon'])
+    bumps.sort()
+
+    sc, rest = [], []
+    for e in json.load(open(OSM / 'pois.json', encoding='utf-8'))['elements']:
+        t, (la, lo) = e.get('tags', {}), ll(e)
+        if la is None:
+            continue
+        name = (t.get('name:ko') or t.get('name') or '').strip()
+        if t.get('amenity') == 'charging_station':
+            tesla = 'tesla' in (t.get('brand', '') + t.get('operator', '') + name).lower() or '테슬라' in name
+            if not tesla or '주유소' in name:
+                continue
+            if not name or name.lower() == 'tesla supercharger':
+                name = '테슬라 슈퍼차저'
+            n = t.get('capacity', '')
+            sc.append([round(la, 5), round(lo, 5), name.replace('수퍼차저', '슈퍼차저'), int(n) if n.isdigit() else 0])
+        elif t.get('highway') == 'services':
+            if not name or ('주유소' in name and '휴게소' not in name):
+                continue
+            rest.append([round(la, 5), round(lo, 5), name, 'S'])
+        elif t.get('highway') == 'rest_area':
+            if '졸음쉼터' in name:
+                rest.append([round(la, 5), round(lo, 5), name, 'R'])
+            elif '휴게소' in name and len(name) > 3:
+                rest.append([round(la, 5), round(lo, 5), name, 'S'])
+    # 같은 휴게소가 점·면으로 두 번 들어온 것 정리 (이름 같고 300m 안)
+    dedup = []
+    for r in rest:
+        if any(r[2] == q[2] and abs(r[0] - q[0]) < 0.003 and abs(r[1] - q[1]) < 0.003 for q in dedup):
+            continue
+        dedup.append(r)
+    rest = dedup
+
+    b_body = json.dumps(bumps, separators=(',', ':'))
+    p_body = json.dumps({'sc': sc, 'rest': rest}, ensure_ascii=False, separators=(',', ':'))
+    (out_dir / 'bumps.json').write_text(b_body, encoding='utf-8')
+    (out_dir / 'pois.json').write_text(p_body, encoding='utf-8')
+    ver = {'ver': hashlib.sha1((b_body + p_body).encode()).hexdigest()[:10],
+           'bumps': len(bumps), 'sc': len(sc), 'rest': len(rest)}
+    (out_dir / 'extra-ver.json').write_text(json.dumps(ver), encoding='utf-8')
+    print('과속방지턱', n_pub, '+ OSM', len(bumps) - n_pub, '=', len(bumps),
+          '| 슈퍼차저', len(sc), '| 휴게소·쉼터', len(rest), ver)
+
+
+if __name__ == '__main__':
+    if '--cached' not in sys.argv:
+        fetch_all()
+    build(sys.argv[1])
