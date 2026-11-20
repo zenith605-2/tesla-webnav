@@ -25,6 +25,7 @@ RAW = ROOT / 'data/raw'
 OSM = ROOT / 'data/osm'
 UA = {'User-Agent': 'Mozilla/5.0 (webnav-data)'}
 OVERPASS = 'https://overpass-api.de/api/interpreter'
+SC_NAMES = json.load(open(ROOT / 'tools/sc_names.json', encoding='utf-8')) if (ROOT / 'tools/sc_names.json').exists() else {}  # 슈퍼차저 한글 이름(티맵 역지오코딩으로 한 번 만듦)
 KR = 'area["ISO3166-1"="KR"][admin_level=2]->.k;'
 
 
@@ -73,6 +74,10 @@ def fetch_all():
                  'nwr["amenity"="charging_station"]["name"~"Supercharger|슈퍼차저|수퍼차저",i](area.k);'
                  'nwr["highway"~"^(services|rest_area)$"](area.k););out center tags;')
     (OSM / 'pois.json').write_text(json.dumps(p, ensure_ascii=False), encoding='utf-8')
+    # 슈퍼차저: supercharge.info 커뮤니티 DB (한국 운영 중 185곳, 충전기 수·kW). OSM 은 이름(한글) 보충용
+    sc = get_json('https://supercharge.info/service/supercharge/allSites', timeout=120)
+    kr = [x for x in sc if (x.get('address') or {}).get('country') == 'South Korea']
+    (RAW / 'superchargers_kr.json').write_text(json.dumps(kr, ensure_ascii=False), encoding='utf-8')
 
 
 def ll(e):
@@ -137,6 +142,22 @@ def build(out_dir):
             continue
         dedup.append(r)
     rest = dedup
+    # 슈퍼차저는 supercharge.info 가 있으면 그것으로 (OSM 한글 이름을 300m 안이면 빌려 씀)
+    sci = RAW / 'superchargers_kr.json'
+    if sci.exists():
+        osm_sc, sc = sc, []
+        for x in json.load(open(sci, encoding='utf-8')):
+            if x.get('status') not in ('OPEN', 'CONSTRUCTION'):
+                continue
+            la, lo = x['gps']['latitude'], x['gps']['longitude']
+            near = [o for o in osm_sc if abs(o[0] - la) < 0.003 and abs(o[1] - lo) < 0.004 and o[2] != '테슬라 슈퍼차저']
+            ad = x.get('address') or {}
+            rs = [r for r in rest if abs(r[0] - la) < 0.0036 and abs(r[1] - lo) < 0.0045]
+            name = (near[0][2] if near else ('테슬라 슈퍼차저 · ' + rs[0][2]) if rs
+                    else SC_NAMES.get(str(x['id'])) or '테슬라 슈퍼차저 · ' + (ad.get('city') or ''))
+            if x['status'] == 'CONSTRUCTION':
+                name += ' (공사 중)'
+            sc.append([round(la, 5), round(lo, 5), name, x.get('stallCount') or 0, x.get('powerKilowatt') or 0])
 
     b_body = json.dumps(bumps, separators=(',', ':'))
     p_body = json.dumps({'sc': sc, 'rest': rest}, ensure_ascii=False, separators=(',', ':'))
