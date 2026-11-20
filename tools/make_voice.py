@@ -1,6 +1,6 @@
 """내비 안내 음성 조각 만들기 (제미나이 TTS, 리도 Supabase 중계의 관리자 경로 사용).
 
-각 조각을 한 번만 만들어 actparty-site/t/vo/<키>.m4a 로 저장하고, 페이지가 이어 붙여 재생한다.
+각 조각을 한 번만 만들어 actparty-site/t/vo/<키>.mp3 로 저장하고, 페이지가 이어 붙여 재생한다.
   python3 tools/make_voice.py            # 없는 것만 만들기
   python3 tools/make_voice.py --force    # 전부 다시
   python3 tools/make_voice.py --voice Aoede
@@ -72,17 +72,19 @@ def tts(text):
 
 def make(item):
     key, text = item
-    out = OUT / f'{key}.m4a'
+    if not (RAW / f'{key}.wav').exists() and '--offline' in sys.argv:
+        return key, 'skip'
+    out = OUT / f'{key}.mp3'
     if out.exists() and not FORCE:
         return key, 'skip'
     wav = RAW / f'{key}.wav'
     if not wav.exists() or FORCE:
         wav.write_bytes(tts(text))
-    # 앞뒤 무음 자르고 10% 빠르게, 크기 고르게 → AAC 64k
+    # 앞뒤 무음 자르고 10% 빠르게, 크기 고르게 → MP3 64k (테슬라 브라우저는 AAC 재생 못 할 수 있음)
     af = ('silenceremove=start_periods=1:start_threshold=-45dB,areverse,'
           'silenceremove=start_periods=1:start_threshold=-45dB,areverse,atempo=1.1,loudnorm=I=-15:TP=-1.5:LRA=7')
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(wav), '-af', af, '-ac', '1', '-ar', '24000',
-                    '-c:a', 'aac', '-b:a', '64k', str(out)], check=True)
+                    '-c:a', 'libmp3lame', '-b:a', '64k', str(out)], check=True)
     return key, 'ok'
 
 
@@ -95,7 +97,7 @@ def main():
             if st == 'ok':
                 print('만듦', key, p[key])
     (OUT / 'list.json').write_text(json.dumps({'voice': VOICE, 'model': MODEL, 'keys': sorted(p)}, ensure_ascii=False))
-    total = sum(f.stat().st_size for f in OUT.glob('*.m4a'))
+    total = sum(f.stat().st_size for f in OUT.glob('*.mp3'))
     print(len(p), '조각,', total // 1024, 'KB')
 
 
