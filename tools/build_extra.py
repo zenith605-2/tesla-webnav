@@ -51,6 +51,22 @@ def fetch_bumps_public():
     return rows
 
 
+def fetch_standard(pk):
+    base = 'https://www.data.go.kr'
+    h = {'Referer': f'{base}/data/{pk}/standard.do', 'X-Requested-With': 'XMLHttpRequest'}
+    col = get_json(f'{base}/download/columList.json?pk={pk}&ext=JSON', h)
+    t, total, rows = col['tableVO'], int(col['totalCount']), []
+    for page in range(1, total // 10000 + 2):
+        q = [('colNmList', c) for c in t['colNmList']] + [
+            ('totalCount', total), ('svcTableNm', t['svcTableNm']), ('perPage', 10000), ('page', page)]
+        d = get_json(f'{base}/download/standard.json?publicDataPk={pk}&' + urllib.parse.urlencode(q), h)
+        rows += d if isinstance(d, list) else next(v for v in d.values() if isinstance(v, list))
+        time.sleep(1)
+    if len(rows) < total * 0.95:
+        raise SystemExit(f'{pk} 행이 너무 적음: {len(rows)} / {total}')
+    return rows
+
+
 def overpass(q):
     for i in range(3):
         try:
@@ -65,6 +81,8 @@ def fetch_all():
     RAW.mkdir(parents=True, exist_ok=True)
     OSM.mkdir(parents=True, exist_ok=True)
     (RAW / 'bumps_all.json').write_text(json.dumps(fetch_bumps_public(), ensure_ascii=False), encoding='utf-8')
+    # 교통사고 다발지역 표준데이터(도로교통공단, data.go.kr 15029185)
+    (RAW / 'accidents_all.json').write_text(json.dumps(fetch_standard('15029185'), ensure_ascii=False), encoding='utf-8')
     c = overpass('[out:json][timeout:180];' + KR +
                  '(node["traffic_calming"~"^(bump|hump|table|yes)$"](area.k););out skel;')
     (OSM / 'calming.json').write_text(json.dumps(c), encoding='utf-8')
@@ -159,12 +177,35 @@ def build(out_dir):
                 name += ' (공사 중)'
             sc.append([round(la, 5), round(lo, 5), name, x.get('stallCount') or 0, x.get('powerKilowatt') or 0])
 
+    # 사고 다발 지역: 최근 3년치만, [위도, 경도, 유형, 사고 건수]
+    acc = []
+    ap = RAW / 'accidents_all.json'
+    if ap.exists():
+        ar = json.load(open(ap, encoding='utf-8'))
+        years = [int(x['ACDNT_YEAR']) for x in ar if str(x.get('ACDNT_YEAR', '')).isdigit()]
+        y0 = (max(years) - 2) if years else 0
+        seen = set()
+        for x in ar:
+            try:
+                la, lo, y = float(x['LATITUDE']), float(x['LONGITUDE']), int(x['ACDNT_YEAR'])
+            except (ValueError, TypeError, KeyError):
+                continue
+            if y < y0 or not (33 < la < 39 and 124 < lo < 132):
+                continue
+            k = (round(la, 4), round(lo, 4))
+            if k in seen:
+                continue
+            seen.add(k)
+            n = x.get('OCCRRNC_CO', '0')
+            acc.append([round(la, 5), round(lo, 5), (x.get('ACDNT_TYPE_SE') or '').strip(), int(n) if str(n).isdigit() else 0])
+    (out_dir / 'acc.json').write_text(json.dumps(acc, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
     b_body = json.dumps(bumps, separators=(',', ':'))
     p_body = json.dumps({'sc': sc, 'rest': rest}, ensure_ascii=False, separators=(',', ':'))
     (out_dir / 'bumps.json').write_text(b_body, encoding='utf-8')
     (out_dir / 'pois.json').write_text(p_body, encoding='utf-8')
-    ver = {'ver': hashlib.sha1((b_body + p_body).encode()).hexdigest()[:10],
-           'bumps': len(bumps), 'sc': len(sc), 'rest': len(rest)}
+    a_body = (out_dir / 'acc.json').read_text(encoding='utf-8')
+    ver = {'ver': hashlib.sha1((b_body + p_body + a_body).encode()).hexdigest()[:10],
+           'bumps': len(bumps), 'sc': len(sc), 'rest': len(rest), 'acc': len(acc)}
     (out_dir / 'extra-ver.json').write_text(json.dumps(ver), encoding='utf-8')
     print('과속방지턱', n_pub, '+ OSM', len(bumps) - n_pub, '=', len(bumps),
           '| 슈퍼차저', len(sc), '| 휴게소·쉼터', len(rest), ver)
