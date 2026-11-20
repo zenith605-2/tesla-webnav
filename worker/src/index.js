@@ -10,7 +10,7 @@
 const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding', 'road/matchToRoads500', 'road/nearToRoad']);
 const ORIGINS = ['https://zenithworks.app', 'https://www.zenithworks.app', 'https://actparty.app', 'null'];
 // 한 사람(IP)이 무료 한도를 다 쓰지 못하게 하루 한도 (같은 서버 조각 안에서 세는 대략값)
-const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, kakao: 60 };
+const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, kakao: 60, naver: 40 };
 const ipDay = new Map();
 let day = '';
 const incCache = new Map();
@@ -43,16 +43,22 @@ export class Counter {
   constructor(ctx) { this.ctx = ctx; }
   async fetch(req) {
     const u = new URL(req.url), d = u.searchParams.get('d'), k = u.searchParams.get('k');
+    if (u.pathname === '/getk') return new Response(String((await this.ctx.storage.get(d + '|' + k)) || 0));
     if (u.pathname === '/inc') { const key = d + '|' + k, n = ((await this.ctx.storage.get(key)) || 0) + 1; await this.ctx.storage.put(key, n); return new Response(String(n)); }
     const out = {};
     for (const q of Object.keys(QUOTA)) out[q] = (await this.ctx.storage.get(d + '|' + q)) || 0;
     return Response.json(out);
   }
 }
-function count(env, ctx, k) {
+function count(env, ctx, k, dkey) {
   if (!env.CNT) return;
   const stub = env.CNT.get(env.CNT.idFromName('day'));
-  ctx.waitUntil(stub.fetch('https://cnt/inc?d=' + kst().slice(0, 10) + '&k=' + k).catch(() => {}));
+  ctx.waitUntil(stub.fetch('https://cnt/inc?d=' + (dkey || kst().slice(0, 10)) + '&k=' + k).catch(() => {}));
+}
+// 네이버는 넘으면 요금이 나가므로 '달' 단위로 세서 5만에서 멈춘다 (무료 월 6만)
+const NAVER_MONTH = 50000;
+async function naverUsed(env) {
+  try { const r = await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/getk?d=' + kst().slice(0, 7) + '&k=naver')).text(); return Number(r) || 0; } catch { return 0; }
 }
 
 export default {
@@ -68,7 +74,8 @@ export default {
       // 오늘(한국 시간) 전체 이용자가 쓴 무료 호출 수와 한도
       let used = { routes: 0, traffic: 0, match: 0 };
       try { used = await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/get?d=' + kst().slice(0, 10))).json(); } catch { /* 없으면 0 */ }
-      return new Response(JSON.stringify({ date: kst().slice(0, 10), used, limit: QUOTA }), { headers: { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=30' } });
+      used.naverMonth = await naverUsed(env);
+      return new Response(JSON.stringify({ date: kst().slice(0, 10), used, limit: { ...QUOTA, naverMonth: NAVER_MONTH } }), { headers: { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=30' } });
     }
 
     if (path.startsWith('admin/')) {
@@ -159,6 +166,18 @@ export default {
       for (const k of ['origin', 'destination', 'waypoints', 'priority', 'car_fuel', 'avoid', 'alternatives', 'road_details', 'summary']) { const v = url.searchParams.get(k); if (v) q.set(k, v); }
       count(env, ctx, 'kakao');
       const r = await fetch('https://apis-navi.kakaomobility.com/v1/directions?' + q, { headers: { Authorization: 'KakaoAK ' + env.KAKAO_KEY } });
+      return new Response(await r.arrayBuffer(), { status: r.status, headers: { ...h, 'Content-Type': 'application/json' } });
+    }
+
+    // 네이버 클라우드 Directions 5 (비밀 값 NAVER_ID·NAVER_SECRET). 달마다 5만에서 멈춤 → 요금 0원
+    if (path === 'naver/driving') {
+      if (!env.NAVER_ID || !env.NAVER_SECRET) return json({ error: '서버에 네이버 키가 없습니다' }, 503, h);
+      if (overDay(ip, 'naver')) return json({ error: '오늘 한도(LIMIT)를 넘었습니다' }, 429, h);
+      if ((await naverUsed(env)) >= NAVER_MONTH) return json({ error: '이번 달 네이버 무료 한도(LIMIT)를 다 썼습니다' }, 429, h);
+      const q = new URLSearchParams();
+      for (const k of ['start', 'goal', 'waypoints', 'option', 'cartype', 'fueltype', 'lang']) { const v = url.searchParams.get(k); if (v) q.set(k, v); }
+      count(env, ctx, 'naver', kst().slice(0, 7));
+      const r = await fetch('https://maps.apigw.ntruss.com/map-direction/v1/driving?' + q, { headers: { 'x-ncp-apigw-api-key-id': env.NAVER_ID, 'x-ncp-apigw-api-key': env.NAVER_SECRET } });
       return new Response(await r.arrayBuffer(), { status: r.status, headers: { ...h, 'Content-Type': 'application/json' } });
     }
 
