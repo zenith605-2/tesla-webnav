@@ -12,3 +12,12 @@ id = "a71be1f048cd42a59809b4ec756faa23"
 name = "RL"
 namespace_id = "1001"
 simple = { limit = 120, period = 60 }
+
+# 오늘 쓴 무료 호출 수(전체 이용자 합계)를 세는 카운터 (Durable Object, 무료 요금제)
+[[durable_objects.bindings]]
+name = "CNT"
+class_name = "Counter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Counter"]

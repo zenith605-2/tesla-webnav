@@ -37,8 +37,26 @@ function overDay(ip, what) {
   return n > IP_DAY[what];
 }
 
+// 티맵 무료 하루 한도 (SK open API 무료 요금제)
+const QUOTA = { routes: 1000, traffic: 1000, match: 200 };
+export class Counter {
+  constructor(ctx) { this.ctx = ctx; }
+  async fetch(req) {
+    const u = new URL(req.url), d = u.searchParams.get('d'), k = u.searchParams.get('k');
+    if (u.pathname === '/inc') { const key = d + '|' + k, n = ((await this.ctx.storage.get(key)) || 0) + 1; await this.ctx.storage.put(key, n); return new Response(String(n)); }
+    const out = {};
+    for (const q of Object.keys(QUOTA)) out[q] = (await this.ctx.storage.get(d + '|' + q)) || 0;
+    return Response.json(out);
+  }
+}
+function count(env, ctx, k) {
+  if (!env.CNT) return;
+  const stub = env.CNT.get(env.CNT.idFromName('day'));
+  ctx.waitUntil(stub.fetch('https://cnt/inc?d=' + kst().slice(0, 10) + '&k=' + k).catch(() => {}));
+}
+
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const h = cors(req.headers.get('origin'));
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: h });
     const url = new URL(req.url);
@@ -46,6 +64,12 @@ export default {
     const ip = req.headers.get('cf-connecting-ip') || 'x';
 
     if (path === 'ping') return json({ ok: true, tmap: !!env.TMAP_KEY, kv: !!env.KV }, 200, h);
+    if (path === 'quota') {
+      // 오늘(한국 시간) 전체 이용자가 쓴 무료 호출 수와 한도
+      let used = { routes: 0, traffic: 0, match: 0 };
+      try { used = await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/get?d=' + kst().slice(0, 10))).json(); } catch { /* 없으면 0 */ }
+      return new Response(JSON.stringify({ date: kst().slice(0, 10), used, limit: QUOTA }), { headers: { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=30' } });
+    }
 
     if (path.startsWith('admin/')) {
       const xa = req.headers.get('x-admin');
@@ -109,6 +133,7 @@ export default {
       const cached = await cache.match(cacheKey);
       if (cached) { const d = await cached.json(); incCache.set(ck, { t: Date.now(), d }); return json(d, 200, h); }
       const r = await fetch('https://apis.openapi.sk.com/tmap/traffic?version=1&format=json&reqCoordType=WGS84GEO&resCoordType=WGS84GEO&zoomLevel=11&trafficType=AUTO&centerLat=' + la + '&centerLon=' + lo, { headers: { appKey: env.TMAP_KEY, Accept: 'application/json' } });
+      count(env, ctx, 'traffic');
       if (!r.ok) return json({ error: 'HTTP ' + r.status }, 502, h);
       const d = await r.json();
       const out = (d.features || []).filter((f) => f.geometry?.type === 'Point' && f.properties?.isAccidentNode === 'Y').map((f) => {
@@ -139,6 +164,8 @@ export default {
       }
       try {
         const r = await fetch('https://apis.openapi.sk.com/tmap/' + p + url.search, init);
+        if (p === 'routes' || p === 'routes/prediction') count(env, ctx, 'routes');
+        else if (p === 'road/matchToRoads500') count(env, ctx, 'match');
         if (ck2 && r.ok) { const buf = await r.arrayBuffer(); await caches.default.put(ck2, new Response(buf, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=600' } })); return new Response(buf, { status: 200, headers: { ...h, 'Content-Type': 'application/json' } }); }
         if (r.status === 204 || r.status === 304) return new Response(null, { status: 204, headers: h });
         return new Response(await r.arrayBuffer(), { status: r.status, headers: { ...h, 'Content-Type': r.headers.get('content-type') || 'application/json' } });
