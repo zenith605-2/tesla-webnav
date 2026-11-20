@@ -51,6 +51,36 @@ Deno.serve(async (req) => {
   if (path === 'ping') {
     return json({ ok: true, tmap: !!Deno.env.get('TMAP_KEY'), ev: !!Deno.env.get('DATA_GO_KR_KEY') }, 200, h);
   }
+  // 관리자 전용: 안내 음성 녹음용 제미나이 TTS (WEBNAV_ADMIN 토큰이 맞을 때만). 키는 서버 비밀 값 GEMINI_API_KEY.
+  if (path.startsWith('admin/')) {
+    const tok = Deno.env.get('WEBNAV_ADMIN');
+    if (!tok || req.headers.get('x-admin') !== tok) return json({ error: 'forbidden' }, 403, h);
+    const gk = Deno.env.get('GEMINI_API_KEY');
+    if (!gk) return json({ error: 'no gemini key' }, 503, h);
+    const G = 'https://generativelanguage.googleapis.com/v1beta/';
+    if (path === 'admin/models') {
+      const r = await fetch(G + 'models?pageSize=200&key=' + gk);
+      const d = await r.json();
+      return json({ status: r.status, models: (d.models || []).map((m: { name: string }) => m.name).filter((n: string) => /tts|audio/i.test(n)) }, 200, h);
+    }
+    if (path === 'admin/tts' && req.method === 'POST') {
+      const b = await req.json();
+      const model = b.model || 'gemini-2.5-flash-preview-tts';
+      const r = await fetch(G + 'models/' + model + ':generateContent?key=' + gk, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: b.text }] }],
+          generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: b.voice || 'Kore' } } } },
+        }),
+      });
+      const d = await r.json();
+      const part = d?.candidates?.[0]?.content?.parts?.find((p: { inlineData?: unknown }) => p.inlineData);
+      if (!part) return json({ status: r.status, error: JSON.stringify(d).slice(0, 400) }, 502, h);
+      return json({ mime: part.inlineData.mimeType, data: part.inlineData.data, usage: d.usageMetadata }, 200, h);
+    }
+    return json({ error: '없는 경로' }, 404, h);
+  }
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x';
   const lim = limited(ip);
   if (lim) return json({ error: lim }, 429, h);

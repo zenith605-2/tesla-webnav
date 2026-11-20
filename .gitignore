@@ -4,3 +4,4 @@ __pycache__/
 .DS_Store
 HANDOFF.md
 CLAUDE.md
+.admin_token
