@@ -84,6 +84,7 @@ Deno.serve(async (req) => {
   }
   try {
     const r = await fetch(target, init);
+    if (r.status === 204 || r.status === 304) return new Response(null, { status: 204, headers: h });
     const body = await r.arrayBuffer();
     return new Response(body, {
       status: r.status,
