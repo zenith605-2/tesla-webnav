@@ -7,9 +7,12 @@
 
 const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding', 'road/matchToRoads500', 'road/nearToRoad']);
 const EV_OPS = new Set(['getChargerInfo', 'getChargerStatus']);
-const ORIGINS = ['https://actparty.app', 'null', 'file://'];
+const ORIGINS = ['https://actparty.app', 'https://zenithworks.app', 'https://www.zenithworks.app', 'null', 'file://'];
 const PER_MIN = 120;
 const PER_DAY = 3000;
+// 한 사람(IP)이 무료 한도를 다 써 버리지 못하게: 길찾기 하루 60회, 경로 제한속도 하루 20회 (티맵 무료는 넘으면 자동 차단이라 요금은 안 나옴)
+const IP_DAY: Record<string, number> = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20 };
+const ipDay = new Map<string, number>();
 
 const perIp = new Map<string, { t: number; n: number }>();
 const incCache = new Map<string, { t: number; d: unknown }>();
@@ -21,7 +24,7 @@ function cors(origin: string | null): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': ok ? (origin || '*') : 'https://actparty.app',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Accept',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept, x-log',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
@@ -34,7 +37,7 @@ function json(body: unknown, status: number, h: Record<string, string>) {
 function limited(ip: string): string | null {
   const now = Date.now();
   const today = new Date(now + 9 * 3600e3).toISOString().slice(0, 10);
-  if (today !== day) { day = today; dayCount = 0; }
+  if (today !== day) { day = today; dayCount = 0; ipDay.clear(); }
   if (++dayCount > PER_DAY) return '오늘 호출 한도를 넘었습니다';
   const r = perIp.get(ip);
   if (!r || now - r.t > 60e3) { perIp.set(ip, { t: now, n: 1 }); return null; }
@@ -118,8 +121,29 @@ Deno.serve(async (req) => {
     }
     return json({ error: '없는 경로' }, 404, h);
   }
+  // 11/21 공개용 중계는 Cloudflare Workers(tsnavi-relay)로 이사. 리도 프로젝트를 지키려고 여기서는 관리자 경로만 받는다
+  return json({ error: 'moved', to: 'https://tsnavi-relay.zenithworks.workers.dev/' }, 410, h);
+  // 아래는 예전 코드(쓰지 않음)
+  // 의견 보내기: 누구나, 글자만(위치 없음). IP 당 하루 5건, 1,000자. 저장: webnav-logs/feedback/<날짜>-<시각>-<난수>.json
+  if (path === 'feedback' && req.method === 'POST') {
+    const fip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x', fk = fip + '|fb', fn = (ipDay.get(fk) || 0) + 1;
+    limited(fip); ipDay.set(fk, fn);
+    if (fn > 5) return json({ error: '오늘은 더 보낼 수 없습니다' }, 429, h);
+    let b: { text?: string; ver?: string } = {};
+    try { b = await req.json(); } catch (_e) { return json({ error: 'bad' }, 400, h); }
+    const text = String(b.text || '').trim().slice(0, 1000);
+    if (text.length < 2) return json({ error: '내용이 없습니다' }, 400, h);
+    const kst = new Date(Date.now() + 9 * 3600e3).toISOString();
+    const SB = Deno.env.get('SUPABASE_URL')!, SK = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const r = await fetch(`${SB}/storage/v1/object/webnav-logs/feedback/${kst.slice(0, 10)}-${kst.slice(11, 19).replace(/:/g, '')}-${crypto.randomUUID().slice(0, 6)}.json`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + SK, apikey: SK, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ at: kst, text, ver: String(b.ver || '').slice(0, 40), ua: (req.headers.get('user-agent') || '').slice(0, 200) }) });
+    return json({ ok: r.ok }, r.ok ? 200 : 502, h);
+  }
   // 주행 기록(시험용, 페이지에서 ?log=1 로 켠 차만 보냄): Storage 비공개 버킷 webnav-logs/<날짜>/<세션>-<시각>.json. 조회는 관리자 경로
   if (path === 'log' && req.method === 'POST') {
+    const lk = Deno.env.get('WEBNAV_LOG');
+    if (!lk || (req.headers.get('x-log') || url.searchParams.get('k')) !== lk) return json({ error: 'forbidden' }, 403, h);
     const lip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'x', ll = limited(lip);
     if (ll) return json({ error: ll }, 429, h);
     const body = await req.text();
@@ -195,6 +219,12 @@ Deno.serve(async (req) => {
     const p = path.slice(5);
     const key = Deno.env.get('TMAP_KEY');
     if (!TMAP_PATHS.has(p) && !/^pois\/\d+$/.test(p)) return json({ error: '허용되지 않은 경로' }, 404, h);
+    if (IP_DAY[p]) {
+      const k = ip + '|' + p, n = (ipDay.get(k) || 0) + 1;
+      ipDay.set(k, n);
+      if (ipDay.size > 20000) ipDay.clear();
+      if (n > IP_DAY[p]) return json({ error: '오늘 한도(LIMIT)를 넘었습니다' }, 429, h);
+    }
     if (!key) return json({ error: '서버에 티맵 키가 없습니다' }, 503, h);
     target = 'https://apis.openapi.sk.com/tmap/' + p + url.search;
     fwd.appKey = key;

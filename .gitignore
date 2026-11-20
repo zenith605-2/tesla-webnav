@@ -9,3 +9,5 @@ CLAUDE.md
 data/logs/
 .its_key
 supabase/.temp/
+.log_token
+data/feedback/

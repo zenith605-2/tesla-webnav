@@ -1,0 +1,14 @@
+name = "tsnavi-relay"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# 의견·주행 기록 저장소 (id 는 kv namespace create 후 채움)
+[[kv_namespaces]]
+binding = "KV"
+id = "a71be1f048cd42a59809b4ec756faa23"
+
+# IP 당 분당 요청 제한 (Cloudflare 무료 Rate Limiting)
+[[ratelimits]]
+name = "RL"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
