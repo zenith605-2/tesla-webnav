@@ -63,6 +63,16 @@ Deno.serve(async (req) => {
       const d = await r.json();
       return json({ status: r.status, models: (d.models || []).map((m: { name: string }) => m.name).filter((n: string) => /tts|audio/i.test(n)) }, 200, h);
     }
+    if (path === 'admin/text') {
+      // 키 상태 확인용: 아주 짧은 글 생성 한 번 (잔액·한도 확인)
+      const model = url.searchParams.get('model') || 'gemini-3.5-flash-lite';
+      const r = await fetch(G + 'models/' + model + ':generateContent?key=' + gk, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'Say OK' }] }], generationConfig: { maxOutputTokens: 5 } }),
+      });
+      const t = await r.text();
+      return json({ status: r.status, body: t.slice(0, 500) }, 200, h);
+    }
     if (path === 'admin/tts' && req.method === 'POST') {
       const b = await req.json();
       const model = b.model || 'gemini-2.5-flash-preview-tts';
