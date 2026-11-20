@@ -175,7 +175,8 @@ def build(out_dir):
                     else SC_NAMES.get(str(x['id'])) or '테슬라 슈퍼차저 · ' + (ad.get('city') or ''))
             if x['status'] == 'CONSTRUCTION':
                 name += ' (공사 중)'
-            sc.append([round(la, 5), round(lo, 5), name, x.get('stallCount') or 0, x.get('powerKilowatt') or 0])
+            # 위치·이름만 (충전기 수·kW 같은 세부는 넣지 않음, 11/21 사용자 결정)
+            sc.append([round(la, 5), round(lo, 5), name])
 
     # 사고 다발 지역: 최근 3년치만, [위도, 경도, 유형, 사고 건수]
     acc = []
