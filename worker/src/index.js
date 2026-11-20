@@ -38,7 +38,7 @@ function overDay(ip, what) {
 }
 
 // 티맵 무료 하루 한도 (SK open API 무료 요금제)
-const QUOTA = { routes: 1000, traffic: 1000, match: 200, kakao: 3000 }; // 카카오는 무료 한도 미확인이라 하루 3,000에서 스스로 멈춤
+const QUOTA = { routes: 1000, traffic: 1000, match: 200, kakao: 2000 }; // 카카오는 아이혜택 앱과 무료 쿼터를 나눠 쓰므로 하루 2,000에서 스스로 멈춤
 export class Counter {
   constructor(ctx) { this.ctx = ctx; }
   async fetch(req) {
