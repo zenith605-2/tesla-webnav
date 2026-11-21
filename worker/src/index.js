@@ -2,6 +2,7 @@
 //   /ping                 상태 (키 값은 돌려주지 않음)
 //   /tmap/<경로>?<쿼리>    티맵 API 대신 호출 (허용 경로만)
 //   /inc?lat&lon          티맵 교통정보에서 돌발(사고·공사·통제) 지점만 골라 줌 (3분 캐시)
+//   /camfix (POST)        카메라 신고 → KV camfix/<날짜>-<시각>-<난수> (IP 당 하루 40건, 1년 보관)
 //   /feedback (POST)      의견 보내기 → KV fb/<날짜>-<시각>-<난수>  (IP 당 하루 5건, 1,000자, 위치 없음)
 //   /log (POST, k=LOG)    시험용 주행 기록 → KV log/<날짜>/<세션>-<시각>
 //   /admin/logs (x-admin) ?d=접두어 목록, ?f=키 내용
@@ -10,7 +11,7 @@
 const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding', 'road/matchToRoads500', 'road/nearToRoad']);
 const ORIGINS = ['https://zenithworks.app', 'https://www.zenithworks.app', 'https://actparty.app', 'null'];
 // 한 사람(IP)이 무료 한도를 다 쓰지 못하게 하루 한도 (같은 서버 조각 안에서 세는 대략값)
-const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, kakao: 60, naver: 40, ev: 400 };
+const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, camfix: 40, kakao: 60, naver: 40, ev: 400 };
 const ipDay = new Map();
 let day = '';
 const incCache = new Map();
@@ -131,7 +132,7 @@ export default {
       }
       if (path === 'admin/del' && req.method === 'POST') {
         const k = url.searchParams.get('k') || '';
-        if (!/^(fb|log)\//.test(k)) return json({ error: 'bad key' }, 400, h);
+        if (!/^(fb|log|camfix)\//.test(k)) return json({ error: 'bad key' }, 400, h);
         await env.KV.delete(k);
         return json({ ok: true }, 200, h);
       }
@@ -151,6 +152,22 @@ export default {
         JSON.stringify({ at: t, type: String(b.type || '의견').slice(0, 20), text,
           loc: b.loc && isFinite(b.loc.la) && isFinite(b.loc.lo) ? { la: Math.round(b.loc.la * 1e4) / 1e4, lo: Math.round(b.loc.lo * 1e4) / 1e4, h: isFinite(b.loc.h) ? Math.round(b.loc.h) : null } : null,
           ver: String(b.ver || '').slice(0, 40), ua: (req.headers.get('user-agent') || '').slice(0, 200) }));
+      return json({ ok: true }, 200, h);
+    }
+
+    if (path === 'camfix' && req.method === 'POST') {
+      // 카메라 신고: 지도 꾹 눌러 '카메라 있음 / 없음' (11/21). 누른 지점·가까운 카메라·차 진행 방향만, 차 위치는 저장 안 함
+      if (overDay(ip, 'camfix')) return json({ error: '오늘은 더 보낼 수 없습니다' }, 429, h);
+      let b = {};
+      try { b = await req.json(); } catch { return json({ error: 'bad' }, 400, h); }
+      const kind = b.kind === 'add' || b.kind === 'wrong' ? b.kind : null;
+      const la = +b.la, lo = +b.lo;
+      if (!kind || !isFinite(la) || !isFinite(lo) || la < 33 || la > 39 || lo < 124 || lo > 132) return json({ error: 'bad' }, 400, h);
+      const cam = b.cam && isFinite(b.cam.la) && isFinite(b.cam.lo) ? { la: +(+b.cam.la).toFixed(5), lo: +(+b.cam.lo).toFixed(5), lim: +b.cam.lim || 0, dir: isFinite(b.cam.dir) ? +b.cam.dir : -1 } : null;
+      const t = kst();
+      await env.KV.put(`camfix/${t.slice(0, 10)}-${t.slice(11, 19).replace(/:/g, '')}-${crypto.randomUUID().slice(0, 6)}`,
+        JSON.stringify({ at: t, kind, la: +la.toFixed(5), lo: +lo.toFixed(5), h: isFinite(b.h) ? Math.round(b.h) : null, kmh: isFinite(b.kmh) ? Math.round(b.kmh) : null, cam, ver: String(b.ver || '').slice(0, 40) }),
+        { expirationTtl: 60 * 60 * 24 * 365 });
       return json({ ok: true }, 200, h);
     }
 
