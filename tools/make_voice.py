@@ -1,6 +1,6 @@
 """내비 안내 음성 조각 만들기 (제미나이 TTS, 리도 Supabase 중계의 관리자 경로 사용).
 
-각 조각을 한 번만 만들어 actparty-site/t/vo/<키>.mp3 로 저장하고, 페이지가 이어 붙여 재생한다.
+각 조각을 한 번만 만들어 zenithworks/tsnavi/vo/<키>.mp3 로 저장하고, 페이지가 이어 붙여 재생한다.
   python3 tools/make_voice.py            # 없는 것만 만들기
   python3 tools/make_voice.py --force    # 전부 다시
   python3 tools/make_voice.py --voice Aoede
@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT.parent / 'actparty-site/t/vo'
+OUT = ROOT.parent / 'zenithworks/tsnavi/vo'
 RAW = ROOT / 'data/voice/raw'
 URL = 'https://chgodrjjalsrgyxuwjyq.supabase.co/functions/v1/webnav/admin/tts'
 MODEL = 'gemini-3.8-flash-tts'
@@ -50,6 +50,7 @@ def phrases():
         'sec_start': '구간 단속 시작입니다.', 'sec_end': '구간 단속이 끝났습니다.', 'child': '어린이 보호구역,',
         'reroute': '경로를 다시 찾습니다.', 'arrive': '목적지에 도착했습니다.', 'via_arrive': '경유지에 도착했습니다.',
         'via_add': '경유지를 추가했습니다.', 'start': '경로 안내를 시작합니다.',
+        'gear_r': '후진합니다.', 'gear_d': '전진합니다.',
     })
     for code, name in TT.items():
         p[f't{code}'] = f'{name}입니다.'
