@@ -11,3 +11,7 @@ data/logs/
 supabase/.temp/
 .log_token
 data/feedback/
+.kakao_key
+.naver_id
+.naver_secret
+.ev_key

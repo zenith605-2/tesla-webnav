@@ -10,7 +10,7 @@
 const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding', 'road/matchToRoads500', 'road/nearToRoad']);
 const ORIGINS = ['https://zenithworks.app', 'https://www.zenithworks.app', 'https://actparty.app', 'null'];
 // 한 사람(IP)이 무료 한도를 다 쓰지 못하게 하루 한도 (같은 서버 조각 안에서 세는 대략값)
-const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, kakao: 60, naver: 40 };
+const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, kakao: 60, naver: 40, ev: 400 };
 const ipDay = new Map();
 let day = '';
 const incCache = new Map();
@@ -38,7 +38,8 @@ function overDay(ip, what) {
 }
 
 // 티맵 무료 하루 한도 (SK open API 무료 요금제)
-const QUOTA = { routes: 1000, traffic: 1000, match: 200, kakao: 20000 }; // 카카오맵 무료 쿼터 월 300만(아이혜택 앱과 공유) 중 TS내비는 하루 2만(월 최대 60만)에서 스스로 멈춤
+const QUOTA = { routes: 1000, traffic: 1000, match: 200, kakao: 20000, ev: 8000 }; // 카카오맵 무료 쿼터 월 300만(아이혜택 앱과 공유) 중 TS내비는 하루 2만(월 최대 60만)에서 스스로 멈춤
+const evCache = new Map(); // statId → { t, v:[[충전기, 상태, 갱신, kW, 종류]] }
 export class Counter {
   constructor(ctx) { this.ctx = ctx; }
   async fetch(req) {
@@ -152,6 +153,33 @@ export default {
       if (incCache.size > 200) incCache.clear();
       await cache.put(cacheKey, new Response(JSON.stringify(res), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=300' } }));
       return json(res, 200, h);
+    }
+
+    // 환경부(한국환경공단) 충전기 실시간 상태 (비밀 값 EV_KEY). 충전소 번호로 묶어 5분 동안 같이 씀, 하루 8천 회에서 멈춤
+    if (path === 'ev') {
+      if (!env.EV_KEY) return json({ error: '서버에 충전기 키가 없습니다' }, 503, h);
+      const ids = [...new Set((url.searchParams.get('ids') || '').split(',').filter((x) => /^[A-Z0-9]{2,14}$/.test(x)))].slice(0, 25);
+      if (!ids.length) return json({}, 200, h);
+      if (overDay(ip, 'ev')) return json({ error: '오늘 한도(LIMIT)를 넘었습니다' }, 429, h);
+      const now = Date.now(), need = ids.filter((id) => { const c = evCache.get(id); return !c || now - c.t > 300000; });
+      if (need.length) {
+        let used = 0;
+        try { used = (await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/get?d=' + kst().slice(0, 10))).json()).ev || 0; } catch { /* 카운터 실패해도 진행 */ }
+        if (used + need.length <= QUOTA.ev) {
+          await Promise.all(need.map(async (id) => {
+            count(env, ctx, 'ev');
+            try {
+              const r = await fetch('https://apis.data.go.kr/B552584/EvCharger/getChargerInfo?serviceKey=' + env.EV_KEY + '&pageNo=1&numOfRows=100&dataType=JSON&statId=' + id, { signal: AbortSignal.timeout(8000) });
+              const d = await r.json(), it = (d.items && d.items.item) || [];
+              evCache.set(id, { t: Date.now(), v: it.map((x) => [x.chgerId, x.stat, x.statUpdDt, x.output || '', x.chgerType || '']) });
+            } catch { /* 한 곳 실패는 건너뜀 */ }
+          }));
+          if (evCache.size > 20000) evCache.clear();
+        }
+      }
+      const out = {};
+      for (const id of ids) { const c = evCache.get(id); if (c) out[id] = { t: c.t, c: c.v }; }
+      return json(out, 200, h);
     }
 
     // 카카오모빌리티 길찾기 (비밀 값 KAKAO_KEY). 하루 전체 3,000회에서 멈춤
