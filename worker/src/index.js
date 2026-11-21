@@ -41,27 +41,35 @@ function overDay(ip, what) {
 const QUOTA = { routes: 1000, traffic: 1000, match: 200, kakao: 20000, ev: 8000 }; // 카카오맵 무료 쿼터 월 300만(아이혜택 앱과 공유) 중 TS내비는 하루 2만(월 최대 60만)에서 스스로 멈춤
 const evCache = new Map(); // statId → { t, v:[[충전기, 상태, 갱신, kW, 종류]] }
 // 차량 연동 방: 폰(phone)이 보낸 속도·기어를 같은 QR 코드의 차 화면(car)에 그대로 넘김. 값은 메모리에만.
+// 차량 연동 방: 폰(phone)이 보낸 속도·기어를 같은 QR 의 차 화면(car)에 넘김. 값은 메모리에만.
+// 차 화면은 {use:<폰 id>} 로 "지금 운전자의 폰"을 고르고, 방은 그걸 모든 폰에 알려 다른 폰은 쉬게 한다.
 export class LinkHub {
-  constructor(ctx) { this.ctx = ctx; this.last = null; }
+  constructor(ctx) { this.ctx = ctx; this.last = null; this.use = null; }
+  _note() {
+    const n = JSON.stringify({ hub: 1, phone: this.ctx.getWebSockets('phone').length, car: this.ctx.getWebSockets('car').length, use: this.use });
+    for (const w of this.ctx.getWebSockets()) { try { w.send(n); } catch { /* 무시 */ } }
+  }
   async fetch(req) {
     const role = new URL(req.url).searchParams.get('r') === 'car' ? 'car' : 'phone';
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [role]);
-    const peers = (r) => this.ctx.getWebSockets(r).length;
     if (role === 'car' && this.last) { try { pair[1].send(this.last); } catch { /* 무시 */ } }
-    const note = JSON.stringify({ hub: 1, phone: peers('phone'), car: peers('car') });
-    for (const w of this.ctx.getWebSockets()) { try { w.send(note); } catch { /* 무시 */ } }
+    this._note();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
   webSocketMessage(ws, msg) {
-    if (!this.ctx.getTags(ws).includes('phone') || typeof msg !== 'string' || msg.length > 300) return;
+    if (typeof msg !== 'string' || msg.length > 300) return;
+    if (this.ctx.getTags(ws).includes('car')) {
+      let d; try { d = JSON.parse(msg); } catch { return; }
+      if ('use' in d) { this.use = typeof d.use === 'string' && /^[A-Za-z0-9]{6,40}$/.test(d.use) ? d.use : null; this._note(); }
+      return;
+    }
     this.last = msg;
     for (const c of this.ctx.getWebSockets('car')) { try { c.send(msg); } catch { /* 무시 */ } }
   }
   webSocketClose(ws, code) {
     try { ws.close(code === 1005 ? 1000 : code, 'bye'); } catch { /* 무시 */ }
-    const note = JSON.stringify({ hub: 1, phone: this.ctx.getWebSockets('phone').length, car: this.ctx.getWebSockets('car').length });
-    for (const w of this.ctx.getWebSockets()) { if (w !== ws) { try { w.send(note); } catch { /* 무시 */ } } }
+    this._note();
   }
 }
 export class Counter {
