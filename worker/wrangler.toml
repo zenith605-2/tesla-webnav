@@ -21,3 +21,12 @@ class_name = "Counter"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Counter"]
+
+# 폰 앱(TSnavi 연동) → 차 화면 TSnavi 로 차 속도를 넘기는 통로 (QR 코드 하나당 방 하나, 저장 안 함)
+[[durable_objects.bindings]]
+name = "LINK"
+class_name = "LinkHub"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["LinkHub"]

@@ -40,6 +40,30 @@ function overDay(ip, what) {
 // 티맵 무료 하루 한도 (SK open API 무료 요금제)
 const QUOTA = { routes: 1000, traffic: 1000, match: 200, kakao: 20000, ev: 8000 }; // 카카오맵 무료 쿼터 월 300만(아이혜택 앱과 공유) 중 TS내비는 하루 2만(월 최대 60만)에서 스스로 멈춤
 const evCache = new Map(); // statId → { t, v:[[충전기, 상태, 갱신, kW, 종류]] }
+// 차량 연동 방: 폰(phone)이 보낸 속도·기어를 같은 QR 코드의 차 화면(car)에 그대로 넘김. 값은 메모리에만.
+export class LinkHub {
+  constructor(ctx) { this.ctx = ctx; this.last = null; }
+  async fetch(req) {
+    const role = new URL(req.url).searchParams.get('r') === 'car' ? 'car' : 'phone';
+    const pair = new WebSocketPair();
+    this.ctx.acceptWebSocket(pair[1], [role]);
+    const peers = (r) => this.ctx.getWebSockets(r).length;
+    if (role === 'car' && this.last) { try { pair[1].send(this.last); } catch { /* 무시 */ } }
+    const note = JSON.stringify({ hub: 1, phone: peers('phone'), car: peers('car') });
+    for (const w of this.ctx.getWebSockets()) { try { w.send(note); } catch { /* 무시 */ } }
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+  webSocketMessage(ws, msg) {
+    if (!this.ctx.getTags(ws).includes('phone') || typeof msg !== 'string' || msg.length > 300) return;
+    this.last = msg;
+    for (const c of this.ctx.getWebSockets('car')) { try { c.send(msg); } catch { /* 무시 */ } }
+  }
+  webSocketClose(ws, code) {
+    try { ws.close(code === 1005 ? 1000 : code, 'bye'); } catch { /* 무시 */ }
+    const note = JSON.stringify({ hub: 1, phone: this.ctx.getWebSockets('phone').length, car: this.ctx.getWebSockets('car').length });
+    for (const w of this.ctx.getWebSockets()) { if (w !== ws) { try { w.send(note); } catch { /* 무시 */ } } }
+  }
+}
 export class Counter {
   constructor(ctx) { this.ctx = ctx; }
   async fetch(req) {
@@ -153,6 +177,16 @@ export default {
       if (incCache.size > 200) incCache.clear();
       await cache.put(cacheKey, new Response(JSON.stringify(res), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=300' } }));
       return json(res, 200, h);
+    }
+
+    // 차량 연동 웹소켓: /link/ws?c=<QR 코드 값>&r=car|phone
+    if (path === 'link/ws') {
+      if (!env.LINK) return json({ error: 'no link' }, 503, h);
+      if (req.headers.get('upgrade') !== 'websocket') return json({ error: 'websocket only' }, 426, h);
+      const c = url.searchParams.get('c') || '';
+      if (!/^[A-Za-z0-9]{20,40}$/.test(c)) return json({ error: 'bad code' }, 400, h);
+      if (url.searchParams.get('r') === 'car' && !/^https:\/\/(zenithworks\.app|zenith605-2\.github\.io)$/.test(req.headers.get('origin') || '')) return json({ error: 'forbidden' }, 403, h);
+      return env.LINK.get(env.LINK.idFromName(c)).fetch(req);
     }
 
     // 환경부(한국환경공단) 충전기 실시간 상태 (비밀 값 EV_KEY). 충전소 번호로 묶어 5분 동안 같이 씀, 하루 8천 회에서 멈춤
