@@ -156,7 +156,7 @@ export default {
     }
 
     if (path === 'camfix' && req.method === 'POST') {
-      // 카메라 신고: 지도 꾹 눌러 '카메라 있음 / 없음' (11/21). 누른 지점·가까운 카메라·차 진행 방향만, 차 위치는 저장 안 함
+      // 카메라 신고: 지도 꾹 눌러 제한속도(lim, 0=신호만) 또는 '없음' (11/21). 누른 지점·가까운 카메라·차 진행 방향(h, hOk=달리는 중이라 믿을 만함)만, 차 위치는 저장 안 함
       if (overDay(ip, 'camfix')) return json({ error: '오늘은 더 보낼 수 없습니다' }, 429, h);
       let b = {};
       try { b = await req.json(); } catch { return json({ error: 'bad' }, 400, h); }
@@ -166,7 +166,8 @@ export default {
       const cam = b.cam && isFinite(b.cam.la) && isFinite(b.cam.lo) ? { la: +(+b.cam.la).toFixed(5), lo: +(+b.cam.lo).toFixed(5), lim: +b.cam.lim || 0, dir: isFinite(b.cam.dir) ? +b.cam.dir : -1 } : null;
       const t = kst();
       await env.KV.put(`camfix/${t.slice(0, 10)}-${t.slice(11, 19).replace(/:/g, '')}-${crypto.randomUUID().slice(0, 6)}`,
-        JSON.stringify({ at: t, kind, la: +la.toFixed(5), lo: +lo.toFixed(5), h: isFinite(b.h) ? Math.round(b.h) : null, kmh: isFinite(b.kmh) ? Math.round(b.kmh) : null, cam, ver: String(b.ver || '').slice(0, 40) }),
+        JSON.stringify({ at: t, kind, la: +la.toFixed(5), lo: +lo.toFixed(5), lim: Number.isInteger(+b.lim) && +b.lim >= 0 && +b.lim <= 130 ? +b.lim : null,
+          h: b.h != null && isFinite(b.h) ? Math.round(b.h) % 360 : null, hOk: !!b.hOk, kmh: isFinite(b.kmh) ? Math.round(b.kmh) : null, cam, ver: String(b.ver || '').slice(0, 40) }),
         { expirationTtl: 60 * 60 * 24 * 365 });
       return json({ ok: true }, 200, h);
     }

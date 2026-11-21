@@ -26,4 +26,4 @@ if arg == 'fb':
 if arg == 'camfix':
     for p in sorted(out.glob('*.json'))[-30:]:
         d = json.loads(p.read_text())
-        print(d.get('at', '')[:16], '|', '있음' if d.get('kind') == 'add' else '없음·틀림', d.get('la'), d.get('lo'), '방향', d.get('h'), '| 가까운 카메라', d.get('cam'))
+        print(d.get('at', '')[:16], '|', ('있음 ' + str(d.get('lim'))) if d.get('kind') == 'add' else '없음·틀림', d.get('la'), d.get('lo'), '방향', d.get('h'), '(확실)' if d.get('hOk') else '(불확실)', '| 가까운 카메라', d.get('cam'))
