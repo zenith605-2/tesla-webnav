@@ -32,6 +32,8 @@ ROADS = {'motorway': 0, 'trunk': 0, 'primary': 0, 'secondary': 0, 'tertiary': 0,
          'residential': 4, 'living_street': 6,
          'motorway_link': 8, 'trunk_link': 8, 'primary_link': 8, 'secondary_link': 8, 'tertiary_link': 8}
 CELL = 0.001  # 약 100m
+GENERIC = ('시청', '군청', '구청', '도청', '경찰서', '터미널', '교육청', '우체국', '면사무소', '행정복지센터', '주민센터', '공항', '종합운동장', '보건소', '소방서', '법원', '세무서', '역', 'IC', '톨게이트', '휴게소', '읍사무소')
+MISS = [] if '--miss' in sys.argv else None  # 못 찾은 지명 보기
 
 
 def cams():
@@ -60,24 +62,40 @@ class Roads(osmium.SimpleHandler):
         self.ways = []
         self.names = defaultdict(list)   # 지명·교차로·건물 등 이름 → 위치들 (설치장소 글 '(A→B)' 찾기용)
         self.places = {}
+        self.generic = defaultdict(list)  # '시청'·'경찰서' 같은 일반 명사 → 그런 이름으로 끝나는 곳들
 
-    def node(self, n):
-        nm = n.tags.get('name')
+    def add_name(self, tags, loc):
+        nm = tags.get('name') or tags.get('name:ko')
         if not nm:
             return
         k = norm(nm)
-        loc = (n.location.lat, n.location.lon)
-        self.names[k].append(loc)
-        if n.tags.get('place'):
+        keys = {k}
+        # 역: 오픈스트리트맵엔 '수원'처럼 '역' 없이 적힌 경우가 많음
+        if tags.get('railway') in ('station', 'halt') or tags.get('public_transport') == 'station' or tags.get('station'):
+            if not k.endswith('역'):
+                keys.add(k + '역')
+        # 나들목·분기점: '이천' / '이천나들목' → '이천IC'
+        if tags.get('highway') == 'motorway_junction' or k.endswith(('나들목', '분기점', 'IC', 'JC', '톨게이트')):
+            base = re.sub(r'(나들목|분기점|IC|JC|톨게이트)$', '', k)
+            keys.update({base + 'IC', base + 'JC', base + '나들목', base + '분기점', base + '톨게이트'})
+        for kk in keys:
+            self.names[kk].append(loc)
+        if tags.get('place'):
             self.places.setdefault(k, []).append(loc)
+        for g in GENERIC:
+            if k.endswith(g):
+                self.generic[g].append(loc)
+
+    def node(self, n):
+        if 'name' in n.tags or 'name:ko' in n.tags:
+            self.add_name(n.tags, (n.location.lat, n.location.lon))
 
     def way(self, w):
         hw = w.tags.get('highway')
-        nm = w.tags.get('name')
-        if nm and (hw or w.tags.get('bridge') or w.tags.get('tunnel')):
+        if 'name' in w.tags:
             try:
                 n0 = w.nodes[len(w.nodes) // 2]
-                self.names[norm(nm)].append((n0.location.lat, n0.location.lon))
+                self.add_name(w.tags, (n0.location.lat, n0.location.lon))
             except Exception:
                 pass
         if hw not in ROADS:
@@ -152,10 +170,18 @@ def main():
         if len(name) < 2:
             return None
         locs = h.names.get(name) or pref.get(name) or []
+        lim = 60
+        if not locs and name in GENERIC:
+            locs, lim = h.generic.get(name, []), 20
+        if not locs:
+            for suf in ('시청', '군청', '시', '군', '읍', '면', '동'):
+                locs = h.names.get(name + suf) or []
+                if locs:
+                    break
         best = None
         for p in locs:
             d = dkm(la, lo, *p)
-            if d < 60 and (best is None or d < best[0]):
+            if d < lim and (best is None or d < best[0]):
                 best = (d, p)
         return best[1] if best else None
 
@@ -164,6 +190,11 @@ def main():
         if not m:
             return None
         A, B = geo(m.group(1), la, lo), geo(m.group(2), la, lo)
+        if MISS is not None:
+            if not A:
+                MISS.append(m.group(1))
+            if not B:
+                MISS.append(m.group(2))
         if A and B and dkm(*A, *B) > 0.2:
             return bearing(A, B)
         if B and dkm(la, lo, *B) > 0.3:
@@ -247,6 +278,9 @@ def main():
         out[k] = int(round(best[1])) % 360
         stat['oneway'] += 1
     OUT.write_text(json.dumps(out, separators=(',', ':')))
+    if MISS is not None:
+        from collections import Counter
+        (ROOT / 'data/osm/miss.txt').write_text('\n'.join(f'{n}\t{c}' for n, c in Counter(MISS).most_common()))
     print(dict(stat), 'total', len(out), file=sys.stderr)
 
 
