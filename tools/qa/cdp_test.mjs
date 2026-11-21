@@ -16,7 +16,7 @@ await send('Browser.grantPermissions', { permissions: ['geolocation'] }).catch((
 await send('Page.navigate', { url });
 for (const s of steps) {
   if (s.wait) await sleep(s.wait);
-  if (s.js) { const r = await send('Runtime.evaluate', { expression: s.js, awaitPromise: true, returnByValue: true }); console.log((s.name||'js')+':', JSON.stringify(r.result?.value ?? r.exceptionDetails?.exception?.description ?? r).slice(0, 1500)); }
+  if (s.js) { const r = await send('Runtime.evaluate', { expression: s.js, awaitPromise: true, returnByValue: true }); console.log((s.name||'js')+':', JSON.stringify(r.result?.value ?? r.exceptionDetails?.exception?.description ?? r).slice(0, s.full ? 100000 : 1500)); }
   if (s.shot) { const sh = await send('Page.captureScreenshot', { format: 'png' }); writeFileSync(dir + '/' + s.shot, Buffer.from(sh.data, 'base64')); console.log('shot', s.shot); }
 }
 ws.close(); chrome.kill();

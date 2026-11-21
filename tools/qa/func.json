@@ -26,7 +26,7 @@
  {"name":"lp","js":"(function(){var m=$('map');m.dispatchEvent(new PointerEvent('pointerdown',{pointerId:7,clientX:900,clientY:250,bubbles:true}));return 1})()"},
  {"wait":2500,"name":"F14 꾹 누르기","js":"(function(){$('map').dispatchEvent(new PointerEvent('pointerup',{pointerId:7,bubbles:true}));var r=ok('지도 꾹 누르기 카드',$('lp').classList.contains('on')&&$('lp').querySelector('.nm').textContent.length>1,$('lp').querySelector('.nm').textContent);lpClose();return r})()"},
  {"name":"F15 저장","js":"ok('안내 이어가기 저장',(saveResume(),!!localStorage.getItem('navResume')))"},
- {"name":"arr","js":"(function(){var q=routePoint(NAV.total-25);feed(q.la,q.lo);setTimeout(function(){var q2=routePoint(NAV.total-5);feed(q2.la,q2.lo)},1200);return 1})()"},
+ {"name":"arr","js":"(function(){var q=routePoint(NAV.total-25);feed(q.la,q.lo);setTimeout(function(){if(NAV){var q2=routePoint(NAV.total-5);feed(q2.la,q2.lo)}},1200);return 1})()"},
  {"wait":5000,"name":"F16 도착","js":"ok('도착 처리',!NAV&&$('arrCard').classList.contains('show'),'NAV='+!!NAV+' card='+$('arrCard').className)"},
  {"name":"F17 오류","js":"ok('실행 중 오류 없음',errN===0,lastErr)"},
  {"name":"RESULT","js":"QA.join('\\n')"}]
