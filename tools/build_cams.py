@@ -1,7 +1,8 @@
 """경찰청 무인단속카메라 표준데이터 -> 웹 네비용 가벼운 JSON.
 
 입력: data/raw/cameras_all.json (data.go.kr 15028200)
-출력: 지정한 경로에 [위도, 경도, 제한속도, 종류, 구간, 보호구역] 배열
+출력: 지정한 경로에 [위도, 경도, 제한속도, 종류, 구간, 보호구역, 도로이름] 배열
+  도로이름: 그 카메라가 단속하는 도로(ROAD_ROUTE_NM). 교차로에서 옆길을 찍는 카메라를 거르는 데 씀 (11/21)
   종류: 'S' 과속, 'X' 신호+과속, 'R' 신호만(제한속도 없음)
   단속구분 4 이면서 제한속도 없음 = 주정차 등 기타 단속으로 보고 뺀다
   (공식 코드표 미확인. 2026-11-20 분당 데이터 대조: 4·0 은 시장앞·은행앞, 2 는 교차로 '신호과속')
@@ -43,7 +44,8 @@ def main(out_path):
         if key in seen:
             continue
         seen.add(key)
-        out.append([round(la, 5), round(lo, 5), lim, kind, sec, zone])
+        road = (x.get('ROAD_ROUTE_NM') or '').strip().replace(' ', '')
+        out.append([round(la, 5), round(lo, 5), lim, kind, sec, zone, road])
     body = json.dumps(out, separators=(',', ':'))
     Path(out_path).write_text(body, encoding='utf-8')
     ref = max((x.get('REFERENCE_DATE') or '') for x in raw)
