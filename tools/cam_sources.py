@@ -39,4 +39,13 @@ def load_raw():
                 raw.append({'MNLSS_REGLT_CAMERA_MANAGE_NO': e['id'], 'LATITUDE': str(e['la']), 'LONGITUDE': str(e['lo']), 'LMTT_VE': str(e['lim']),
                             'REGLT_SE': e['se'], 'PRTCAREA_TYPE': e['zone'], 'ROAD_ROUTE_NM': '', 'ITLPC': e['loc'], 'REGLT_SCTN_LC_SE': e['sec'],
                             'REFERENCE_DATE': e['date'], 'SIGNGU_NM': '', 'CTPRVN_NM': '', 'SRC': 'koroad', 'DIRX': e.get('dir', -1)})
+    # 지방경찰청 운영 장비 목록(tools/local_merge.py → cam_local.json): 장비번호가 표준데이터에 생기면 자동으로 빠짐 (11/22)
+    lp = ROOT / 'tools/cam_local.json'
+    if lp.exists():
+        have2 = {(x.get('MNLSS_REGLT_CAMERA_MANAGE_NO') or '').strip() for x in raw}
+        for e in json.load(open(lp, encoding='utf-8')):
+            if e['id'] in have2: continue
+            raw.append({'MNLSS_REGLT_CAMERA_MANAGE_NO': e['id'], 'LATITUDE': str(e['la']), 'LONGITUDE': str(e['lo']), 'LMTT_VE': str(e['lim']),
+                        'REGLT_SE': e['se'], 'PRTCAREA_TYPE': e['zone'], 'ROAD_ROUTE_NM': '', 'ITLPC': e['loc'], 'REGLT_SCTN_LC_SE': e['sec'],
+                        'REFERENCE_DATE': e.get('date') or '', 'SIGNGU_NM': '', 'CTPRVN_NM': '', 'SRC': 'local', 'DIRX': -1})
     return raw
