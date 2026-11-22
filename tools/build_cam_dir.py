@@ -228,6 +228,7 @@ def main():
         return None
 
     BAD = []
+    ROADB = {}
     for k, (la, lo, cname, itlpc) in C.items():
         tb = text_brg(itlpc, la, lo) if itlpc else None
         if tb is not None:
@@ -278,6 +279,7 @@ def main():
             continue
         L = sorted(cand.values())
         best = L[0]
+        ROADB[k] = int(round(best[1])) % 180  # 방향 확인 도구용: 가장 그럴듯한 도로의 축(0~179, 양쪽 방향 버튼)
         # 설치장소 글 방향이 있으면: 25m 안 도로 방향 중 글과 40° 안으로 맞는 것 (이름 맞는 도로 우선)
         if tb is not None:
             ok = [c for c in L if c[2] <= 25 and adiff(c[1], tb) < 40]
@@ -303,6 +305,8 @@ def main():
         out[k] = int(round(best[1])) % 360
         stat['oneway'] += 1
     OUT.write_text(json.dumps(out, separators=(',', ':')))
+    # 방향 확인 도구(tsnavi/check.html)가 쓰는 도로 축: 방향 모르는 카메라만 (11/22)
+    (ROOT / 'docs/cam_road.json').write_text(json.dumps({k: v for k, v in ROADB.items() if out.get(k, -1) == -1}, separators=(',', ':')))
     (ROOT / 'data/osm/tmap_need.json').write_text(json.dumps(sorted(NEED), ensure_ascii=False))
     print('티맵에 물어볼 지명', len(NEED))
     (ROOT / 'tools/cam_bad.json').write_text(json.dumps(sorted(set(BAD)), ensure_ascii=False, indent=0))
