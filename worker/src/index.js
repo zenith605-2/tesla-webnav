@@ -108,6 +108,25 @@ export default {
     const path = url.pathname.replace(/^\/+/, '');
     const ip = req.headers.get('cf-connecting-ip') || 'x';
 
+    if (path === 'camdir') {
+      // 카메라 방향 확인 도구(tsnavi/check.html) 결과: {"위도,경도": 방위각|'both'|'none'} 한 칸에 모음. 주인(x-log)만 (11/22)
+      if (!isOwner(req, env)) return json({ error: 'forbidden' }, 403, h);
+      const cur = JSON.parse((await env.KV.get('camdir_all')) || '{}');
+      if (req.method === 'POST') {
+        let b = [];
+        try { b = await req.json(); } catch { return json({ error: 'bad' }, 400, h); }
+        if (!Array.isArray(b) || b.length > 200) return json({ error: 'bad' }, 400, h);
+        for (const [k, v] of b) {
+          if (!/^-?\d+\.\d+,-?\d+\.\d+$/.test(String(k))) continue;
+          if (v === 'both' || v === 'none' || (Number.isFinite(+v) && +v >= 0 && +v < 360)) cur[k] = { v: v === 'both' || v === 'none' ? v : +v, at: kst() };
+        }
+        await env.KV.put('camdir_all', JSON.stringify(cur));
+        return json({ ok: true, n: Object.keys(cur).length }, 200, h);
+      }
+      const out = {};
+      for (const [k, o] of Object.entries(cur)) out[k] = o.v;
+      return json(out, 200, h);
+    }
     if (path.startsWith('cctv2/')) {
       // CCTV 칸 파일: KV 묶음의 첫 줄 목차로 잘라서 내려줌 (해석 없이 자르기만 → CPU 적게)
       const pack = await env.KV.get('cctvpack', { cacheTtl: 300 });

@@ -56,6 +56,19 @@ def main(out_path):
     for c in out:
         if c[7] == -1 and f'{c[0]},{c[1]}' in LEARN:
             c[7] = LEARN[f'{c[0]},{c[1]}']
+    # 사람이 로드뷰로 확인한 결과(tools/get_camdir.py → cam_checked.json): 방향은 무엇보다 우선, 'none' 은 뺌 (11/22)
+    kp = ROOT / 'tools/cam_checked.json'
+    CHK = json.load(open(kp)) if kp.exists() else {}
+    if CHK:
+        keep = []
+        for c in out:
+            v = CHK.get(f'{c[0]},{c[1]}')
+            if v == 'none':
+                continue
+            if isinstance(v, (int, float)):
+                c[7] = int(v)
+            keep.append(c)
+        out = keep
     # 직접 확인한 카메라(tools/cam_extra.json): 경찰청 자료에 아직 없는 새 카메라. 같은 자리(30m)·같은 속도가 자료에 들어오면 자동으로 빠짐 (11/22)
     ep = ROOT / 'tools/cam_extra.json'
     for e in (json.load(open(ep, encoding='utf-8')) if ep.exists() else []):
