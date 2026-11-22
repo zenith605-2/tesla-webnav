@@ -128,6 +128,13 @@ for eid, x in last.items():
     e = {'id': eid, 'act': need, 'lim': x['lim'], 'date': x['date'], 'loc': x['loc'],
          'se': '1+2' if '신호' in x['form'] else '1', 'zone': '2' if '스쿨' in x['zone'] or '어린이' in x['loc'] else '',
          'sec': '1' if re.search(r'시점', x['loc']) else '2' if re.search(r'종점', x['loc']) else ''}
+    MAN = json.load(open(ROOT / 'tools/cam_koroad_manual.json', encoding='utf-8')) if (ROOT / 'tools/cam_koroad_manual.json').exists() else {}
+    if eid in MAN and need in ('new', 'move'):  # 손으로 정한 위치(도로 위에 붙임, 11/22 인천 31대)
+        m = MAN[eid]; e['la'], e['lo'], e['dir'], e['flag'] = m['la'], m['lo'], m.get('dir', -1), '수동'
+        if m.get('lim'): e['lim'] = m['lim']
+        st[need] = st.get(need, 0) + 1; out.append(e)
+        rep.append(f"{need}(수동) {eid} {e['lim']} {e['la']},{e['lo']} {m.get('note','')}")
+        continue
     if need in ('new', 'move'):
         g = None
         for q in queries(x['reg'], x['loc']):

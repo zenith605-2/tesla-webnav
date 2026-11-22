@@ -53,7 +53,7 @@ def main(out_path):
             continue
         seen.add(key)
         road = (x.get('ROAD_ROUTE_NM') or '').strip().replace(' ', '')
-        out.append([round(la, 5), round(lo, 5), lim, kind, sec, zone, road, DIR.get(f'{round(la, 5)},{round(lo, 5)}', -1)])
+        out.append([round(la, 5), round(lo, 5), lim, kind, sec, zone, road, DIR.get(f'{round(la, 5)},{round(lo, 5)}', x.get('DIRX', -1))])
     # 주행 기록으로 배운 방향(tools/learn_dir.py → cam_learned.json): 방향 모르는(-1) 카메라에만 (11/22)
     lp = ROOT / 'tools/cam_learned.json'
     LEARN = json.load(open(lp)) if lp.exists() else {}

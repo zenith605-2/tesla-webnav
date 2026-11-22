@@ -38,5 +38,5 @@ def load_raw():
             elif e['act'] == 'new' and x is None:
                 raw.append({'MNLSS_REGLT_CAMERA_MANAGE_NO': e['id'], 'LATITUDE': str(e['la']), 'LONGITUDE': str(e['lo']), 'LMTT_VE': str(e['lim']),
                             'REGLT_SE': e['se'], 'PRTCAREA_TYPE': e['zone'], 'ROAD_ROUTE_NM': '', 'ITLPC': e['loc'], 'REGLT_SCTN_LC_SE': e['sec'],
-                            'REFERENCE_DATE': e['date'], 'SIGNGU_NM': '', 'CTPRVN_NM': '', 'SRC': 'koroad'})
+                            'REFERENCE_DATE': e['date'], 'SIGNGU_NM': '', 'CTPRVN_NM': '', 'SRC': 'koroad', 'DIRX': e.get('dir', -1)})
     return raw
