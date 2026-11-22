@@ -76,7 +76,11 @@ def main(out_path):
     # 직접 확인한 카메라(tools/cam_extra.json): 경찰청 자료에 아직 없는 새 카메라. 같은 자리(30m)·같은 속도가 자료에 들어오면 자동으로 빠짐 (11/22)
     ep = ROOT / 'tools/cam_extra.json'
     for e in (json.load(open(ep, encoding='utf-8')) if ep.exists() else []):
-        same = [c for c in out if abs(c[0] - e['la']) < 0.0003 and abs(c[1] - e['lo']) < 0.0004 and c[2] == e['lim']]
+        same = [c for c in out if abs(c[0] - e['la']) < 0.0003 and abs(c[1] - e['lo']) < 0.0004 and c[2] == e['lim']
+                and (e.get('override') or c[7] < 0 or abs((c[7] - e.get('dir', -1) + 180) % 360 - 180) < 60)]
+        # 같은 자리라도 방향이 다른 카메라(맞은편 짝)는 따로 넣음. override 면 그 자리 카메라 방향을 덮어씀 (11/22)
+        if same and not e.get('override') and any(c[7] < 0 for c in same) and e.get('dir', -1) >= 0 and all(c[7] < 0 for c in same) and e.get('pair'):
+            same = []
         if same:
             for c in same:  # 직접 확인한 방향이 있으면 그걸로 (예: 로드뷰로 본 옥정로2길 서쪽 전용)
                 if e.get('dir', -1) >= 0:
