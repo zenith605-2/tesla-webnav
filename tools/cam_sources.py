@@ -23,4 +23,20 @@ def load_raw():
                         'REGLT_SE': '1' if f[4] == '99' else f[4], 'PRTCAREA_TYPE': f[5], 'ROAD_ROUTE_NM': f[6], 'ITLPC': plc,
                         'REGLT_SCTN_LC_SE': '1' if plc.startswith('시점') else '2' if plc.startswith('종점') else '',
                         'REFERENCE_DATE': '2025-09-08', 'SIGNGU_NM': '', 'CTPRVN_NM': '경기도', 'SRC': 'gg'})
+    # 한국도로교통공단 월별 신규·이전·속도변경(tools/koroad.py → cam_koroad.json): 표준데이터가 아직 못 따라온 것만 (11/22)
+    kp = ROOT / 'tools/cam_koroad.json'
+    if kp.exists():
+        by = {(x.get('MNLSS_REGLT_CAMERA_MANAGE_NO') or '').strip(): x for x in raw}
+        for e in json.load(open(kp, encoding='utf-8')):
+            x = by.get(e['id'])
+            if x is not None and (x.get('REFERENCE_DATE') or '') >= e['date']:
+                continue  # 표준데이터가 따라옴
+            if e['act'] == 'speed' and x is not None:
+                x['LMTT_VE'] = str(e['lim'])
+            elif e['act'] == 'move' and x is not None:
+                x['LATITUDE'], x['LONGITUDE'], x['ITLPC'] = str(e['la']), str(e['lo']), e['loc']
+            elif e['act'] == 'new' and x is None:
+                raw.append({'MNLSS_REGLT_CAMERA_MANAGE_NO': e['id'], 'LATITUDE': str(e['la']), 'LONGITUDE': str(e['lo']), 'LMTT_VE': str(e['lim']),
+                            'REGLT_SE': e['se'], 'PRTCAREA_TYPE': e['zone'], 'ROAD_ROUTE_NM': '', 'ITLPC': e['loc'], 'REGLT_SCTN_LC_SE': e['sec'],
+                            'REFERENCE_DATE': e['date'], 'SIGNGU_NM': '', 'CTPRVN_NM': '', 'SRC': 'koroad'})
     return raw
