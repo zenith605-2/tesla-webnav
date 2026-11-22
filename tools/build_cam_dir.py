@@ -33,6 +33,10 @@ ROADS = {'motorway': 0, 'trunk': 0, 'primary': 0, 'secondary': 0, 'tertiary': 0,
          'motorway_link': 8, 'trunk_link': 8, 'primary_link': 8, 'secondary_link': 8, 'tertiary_link': 8}
 CELL = 0.001  # 약 100m
 GENERIC = ('시청', '군청', '구청', '도청', '경찰서', '터미널', '교육청', '우체국', '면사무소', '행정복지센터', '주민센터', '공항', '종합운동장', '보건소', '소방서', '법원', '세무서', '역', 'IC', '톨게이트', '휴게소', '읍사무소')
+CITY = {'서울': (37.5665, 126.9780), '서울시': (37.5665, 126.9780), '부산': (35.1796, 129.0756), '인천': (37.4563, 126.7052), '대구': (35.8714, 128.6014),
+        '광주': (35.1595, 126.8526), '대전': (36.3504, 127.3845), '울산': (35.5384, 129.3114), '세종': (36.4800, 127.2890), '수원': (37.2636, 127.0286),
+        '성남': (37.4200, 127.1267), '용인': (37.2411, 127.1776), '고양': (37.6584, 126.8320), '의정부': (37.7381, 127.0337), '춘천': (37.8813, 127.7298),
+        '청주': (36.6424, 127.4890), '천안': (36.8151, 127.1139), '전주': (35.8242, 127.1480), '포항': (36.0190, 129.3435), '창원': (35.2281, 128.6811)}
 MISS = [] if '--miss' in sys.argv else None  # 못 찾은 지명 보기
 _tg = Path(__file__).resolve().parent.parent / 'data/osm/tmap_geo.json'
 TG = json.load(open(_tg)) if _tg.exists() else {}  # '지명|위도0.1|경도0.1' → [위도, 경도] 또는 None(검색해도 없음)
@@ -173,6 +177,9 @@ def main():
         name = re.sub(r'(방면|방향|쪽|방|시내|일대)$', '', norm(re.sub(r'[()\[\]]', '', name)))
         if len(name) < 2:
             return None
+        # 큰 도시 이름은 그 도시 시청 좌표로 (11/22: '서울→탄천종합운동장' 의 '서울'이 근처 '서울○○' 가게로 잡혀 방향이 뒤집힘)
+        if name in CITY:
+            return CITY[name]
         locs = h.names.get(name) or pref.get(name) or []
         lim = 60
         if not locs and name in GENERIC:
@@ -229,6 +236,7 @@ def main():
 
     BAD = []
     ROADB = {}
+    SRC = {}
     for k, (la, lo, cname, itlpc) in C.items():
         tb = text_brg(itlpc, la, lo) if itlpc else None
         if tb is not None:
@@ -285,6 +293,7 @@ def main():
             ok = [c for c in L if c[2] <= 25 and adiff(c[1], tb) < 40]
             if ok:
                 out[k] = int(round(ok[0][1])) % 360
+                SRC[k] = 't'  # 설치장소 글로 정함(가장 믿을 만함)
                 stat['text_pick'] += 1
             else:
                 out[k] = -1
@@ -305,6 +314,7 @@ def main():
         out[k] = int(round(best[1])) % 360
         stat['oneway'] += 1
     OUT.write_text(json.dumps(out, separators=(',', ':')))
+    (ROOT / 'data/osm/cam_dir_src.json').write_text(json.dumps(SRC))
     # 방향 확인 도구(tsnavi/check.html)가 쓰는 도로 축: 방향 모르는 카메라만 (11/22)
     (ROOT / 'docs/cam_road.json').write_text(json.dumps({k: v for k, v in ROADB.items() if out.get(k, -1) == -1}, separators=(',', ':')))
     (ROOT / 'data/osm/tmap_need.json').write_text(json.dumps(sorted(NEED), ensure_ascii=False))
