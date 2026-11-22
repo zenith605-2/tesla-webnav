@@ -54,6 +54,13 @@ def phrases():
     })
     for code, name in TT.items():
         p[f't{code}'] = f'{name}입니다.'
+    # 시작 멘트 뒤 "목적지까지 약 1시간 20분입니다" (11/22). 10분 넘으면 5분 단위로 반올림
+    p['eta'] = '목적지까지 약'
+    for m in list(range(1, 10)) + list(range(10, 56, 5)):
+        p[f'm{m}'] = f'{m}분입니다.'
+    for hh in range(1, 10):
+        p[f'h{hh}'] = f'{hh}시간'
+        p[f'he{hh}'] = f'{hh}시간입니다.'
     return p
 
 
