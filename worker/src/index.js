@@ -108,6 +108,17 @@ export default {
     const path = url.pathname.replace(/^\/+/, '');
     const ip = req.headers.get('cf-connecting-ip') || 'x';
 
+    if (path.startsWith('cctv2/')) {
+      // CCTV 칸 파일: KV 묶음의 첫 줄 목차로 잘라서 내려줌 (해석 없이 자르기만 → CPU 적게)
+      const pack = await env.KV.get('cctvpack', { cacheTtl: 300 });
+      if (!pack) return json({ error: 'none' }, 404, h);
+      const nl = pack.indexOf('\n'), head = JSON.parse(pack.slice(0, nl));
+      const hc = { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' };
+      if (path === 'cctv2/ver') return new Response(JSON.stringify({ ver: head.ver, at: head.at, n: head.n, probe: head.probe }), { headers: { ...hc, 'Cache-Control': 'max-age=60' } });
+      const k = path.slice(6).replace(/\.json$/, ''), ix = head.idx[k];
+      if (!ix) return new Response('[]', { headers: hc });
+      return new Response(pack.substr(nl + 1 + ix[0], ix[1]), { headers: hc });
+    }
     if (path === 'ping') return json({ ok: true, tmap: !!env.TMAP_KEY, kv: !!env.KV }, 200, h);
     if (path === 'quota') {
       // 오늘(한국 시간) 전체 이용자가 쓴 무료 호출 수와 한도
@@ -136,6 +147,13 @@ export default {
         const keys = r.keys.map((k) => k.name).sort().reverse().slice(0, 200);
         const items = await Promise.all(keys.map(async (k) => { try { return { key: k, ...JSON.parse(await env.KV.get(k)) }; } catch { return { key: k }; } }));
         return json(items, 200, h);
+      }
+      if (path === 'admin/cctvpack' && req.method === 'POST') {
+        // 집 맥(tools/cctv_kv.py)이 3시간마다 올리는 전국 CCTV 주소 묶음. 한 칸에 통째로(쓰기 1회)
+        const t = await req.text();
+        if (t.length < 100000 || t.length > 8000000 || t.indexOf('\n') < 0) return json({ error: 'bad pack' }, 400, h);
+        await env.KV.put('cctvpack', t);
+        return json({ ok: true, len: t.length }, 200, h);
       }
       if (path === 'admin/del' && req.method === 'POST') {
         const k = url.searchParams.get('k') || '';
