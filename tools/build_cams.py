@@ -12,6 +12,7 @@
 """
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -43,6 +44,9 @@ def main(out_path):
         else:
             kind = 'S'
         sec = {'1': 1, '01': 1, '2': 2, '02': 2}.get(x['REGLT_SCTN_LC_SE'].strip(), 0)
+        if not sec:  # 구간 칸이 비어도 설치장소 글에 '시점'·'종점'이면 구간단속 (11/22 세종포천)
+            t0 = x.get('ITLPC') or ''
+            sec = 1 if re.search(r'시점|구간\s*시작', t0) else 2 if re.search(r'종점|구간\s*끝', t0) else 0
         zone = {'2': 2, '02': 2, '1': 1, '01': 1}.get(x['PRTCAREA_TYPE'].strip(), 0)
         key = (round(la, 5), round(lo, 5), lim, sec)
         if key in seen:
