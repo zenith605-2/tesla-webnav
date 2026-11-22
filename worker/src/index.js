@@ -214,10 +214,13 @@ export default {
       const la = +b.la, lo = +b.lo;
       if (!kind || !isFinite(la) || !isFinite(lo) || la < 33 || la > 39 || lo < 124 || lo > 132) return json({ error: 'bad' }, 400, h);
       const cam = b.cam && isFinite(b.cam.la) && isFinite(b.cam.lo) ? { la: +(+b.cam.la).toFixed(5), lo: +(+b.cam.lo).toFixed(5), lim: +b.cam.lim || 0, dir: isFinite(b.cam.dir) ? +b.cam.dir : -1 } : null;
+      // 의심 표시: 신고 순간 차 속도가 신고한 제한속도보다 10 넘게 빠르면 잘못 넣었을 수 있음 (11/22 사용자 '이상한 사람이 막 넣을 수도'). 자동 반영은 안 하고 사람이 볼 때 참고
+      const lim0 = Number.isInteger(+b.lim) ? +b.lim : 0, kmh0 = isFinite(b.kmh) ? +b.kmh : null;
+      const doubt = lim0 > 0 && kmh0 != null && kmh0 > lim0 + 10 ? 'fast' : null;
       const t = kst();
       await env.KV.put(`camfix/${t.slice(0, 10)}-${t.slice(11, 19).replace(/:/g, '')}-${crypto.randomUUID().slice(0, 6)}`,
         JSON.stringify({ at: t, kind, la: +la.toFixed(5), lo: +lo.toFixed(5), lim: Number.isInteger(+b.lim) && +b.lim >= 0 && +b.lim <= 130 ? +b.lim : null,
-          h: b.h != null && isFinite(b.h) ? Math.round(b.h) % 360 : null, hOk: !!b.hOk, kmh: isFinite(b.kmh) ? Math.round(b.kmh) : null, cam, ver: String(b.ver || '').slice(0, 40), src: String(b.src || '').slice(0, 10), limSrc: b.limSrc === 'road' ? 'road' : null }), // src qc = 왼쪽 카메라 버튼, limSrc road = 그 순간 도로 제한속도 (11/22)
+          h: b.h != null && isFinite(b.h) ? Math.round(b.h) % 360 : null, hOk: !!b.hOk, kmh: isFinite(b.kmh) ? Math.round(b.kmh) : null, cam, ver: String(b.ver || '').slice(0, 40), src: String(b.src || '').slice(0, 10), limSrc: b.limSrc === 'road' ? 'road' : null, doubt }), // src qc = 왼쪽 카메라 버튼, limSrc road = 그 순간 도로 제한속도 (11/22)
         { expirationTtl: 60 * 60 * 24 * 365 });
       return json({ ok: true }, 200, h);
     }
