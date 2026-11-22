@@ -11,7 +11,7 @@
   보호구역: 0 없음, 1 노인 등, 2 어린이
 """
 import hashlib
-import json
+import json, math
 import re
 import sys
 from pathlib import Path
@@ -91,6 +91,16 @@ def main(out_path):
                     c[7] = e['dir']
             continue
         out.append([e['la'], e['lo'], e['lim'], e.get('kind', 'S'), 0, e.get('zone', 0), e.get('road', ''), e.get('dir', -1)])
+    # 도로공사 구간단속(tools/cam_ex_sec.json, tools/ex_section.py 가 만듦): 경찰청 자료에 같은 방향 구간 시작/끝이 1.5km 안에 생기면 자동으로 빠짐 (11/22)
+    xp = ROOT / 'tools/cam_ex_sec.json'
+    def _d(a, b, c, d):
+        return math.hypot((d - b) * math.cos(math.radians((a + c) / 2)) * 111320, (c - a) * 111320)
+    nx = 0
+    for e in (json.load(open(xp, encoding='utf-8')) if xp.exists() else []):
+        if any(c[4] == e['sec'] and abs(c[0] - e['la']) < 0.02 and _d(c[0], c[1], e['la'], e['lo']) < 1500 and (c[7] < 0 or abs((c[7] - e['dir'] + 180) % 360 - 180) < 60) for c in out):
+            continue
+        out.append([e['la'], e['lo'], e['lim'], 'S', e['sec'], 0, e['road'], e['dir']]); nx += 1
+    print('도로공사 구간단속 추가', nx)
     body = json.dumps(out, separators=(',', ':'))
     Path(out_path).write_text(body, encoding='utf-8')
     ref = max((x.get('REFERENCE_DATE') or '') for x in raw)
