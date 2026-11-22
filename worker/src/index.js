@@ -4,14 +4,14 @@
 //   /inc?lat&lon          티맵 교통정보에서 돌발(사고·공사·통제) 지점만 골라 줌 (3분 캐시)
 //   /camfix (POST)        카메라 신고 → KV camfix/<날짜>-<시각>-<난수> (IP 당 하루 40건, 1년 보관)
 //   /feedback (POST)      의견 보내기 → KV fb/<날짜>-<시각>-<난수>  (IP 당 하루 5건, 1,000자, 위치 없음)
-//   /log (POST, k=LOG)    시험용 주행 기록 → KV log/<날짜>/<세션>-<시각>
+//   /log (POST, k=LOG 또는 이용자 동의)    주행 기록 → KV log/<날짜>/<세션>-<시각>
 //   /admin/logs (x-admin) ?d=접두어 목록, ?f=키 내용
 // 무료 요금제는 한도를 넘으면 막힐 뿐 요금이 나가지 않는다.
 
 const TMAP_PATHS = new Set(['pois', 'pois/search/around', 'routes', 'routes/prediction', 'geo/reversegeocoding', 'road/matchToRoads500', 'road/nearToRoad']);
 const ORIGINS = ['https://zenithworks.app', 'https://www.zenithworks.app', 'https://actparty.app', 'null'];
 // 한 사람(IP)이 무료 한도를 다 쓰지 못하게 하루 한도 (같은 서버 조각 안에서 세는 대략값)
-const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, camfix: 40, kakao: 60, naver: 40, ev: 400 };
+const IP_DAY = { routes: 60, 'routes/prediction': 20, 'road/matchToRoads500': 20, feedback: 5, camfix: 40, log: 400, kakao: 60, naver: 40, ev: 400 };
 const ipDay = new Map();
 let day = '';
 const incCache = new Map();
@@ -173,10 +173,12 @@ export default {
     }
 
     if (path === 'log' && req.method === 'POST') {
-      if (!env.LOG || (req.headers.get('x-log') || url.searchParams.get('k')) !== env.LOG) return json({ error: 'forbidden' }, 403, h);
+      // 개발용(k=LOG) 또는 이용자가 설정에서 직접 켠 [주행 기록 보내기] (11/22, 앞에 u 붙여 구분, IP 하루 400회)
+      const dev = !!env.LOG && (req.headers.get('x-log') || url.searchParams.get('k')) === env.LOG;
+      if (!dev && overDay(ip, 'log')) return json({ error: '오늘은 더 보낼 수 없습니다' }, 429, h);
       const body = await req.text();
       if (body.length > 400000) return json({ error: 'too big' }, 413, h);
-      const sid = (url.searchParams.get('sid') || 'x').replace(/[^a-z0-9]/gi, '').slice(0, 16), t = kst();
+      const sid = (dev ? '' : 'u') + (url.searchParams.get('sid') || 'x').replace(/[^a-z0-9]/gi, '').slice(0, 16), t = kst();
       await env.KV.put(`log/${t.slice(0, 10)}/${sid}-${t.slice(11, 19).replace(/:/g, '')}`, body, { expirationTtl: 60 * 60 * 24 * 60 });
       return json({ ok: true }, 200, h);
     }
