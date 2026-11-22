@@ -22,6 +22,8 @@ def main(out_path):
     raw = json.load(open(ROOT / 'data/raw/cameras_all.json', encoding='utf-8'))
     dp = ROOT / 'tools/cam_dir.json'
     DIR = json.load(open(dp)) if dp.exists() else {}
+    bp = ROOT / 'tools/cam_bad.json'  # 좌표가 다른 동네로 잘못 들어간 카메라 (build_cam_dir.py 가 만듦, 11/22)
+    BADK = set(json.load(open(bp))) if bp.exists() else set()
     out, seen = [], set()
     for x in raw:
         try:
@@ -43,6 +45,8 @@ def main(out_path):
             kind = 'S'
         sec = {'1': 1, '01': 1, '2': 2, '02': 2}.get(x['REGLT_SCTN_LC_SE'].strip(), 0)
         zone = {'2': 2, '02': 2, '1': 1, '01': 1}.get(x['PRTCAREA_TYPE'].strip(), 0)
+        if f'{round(la, 5)},{round(lo, 5)}' in BADK:
+            continue
         key = (round(la, 5), round(lo, 5), lim, sec)
         if key in seen:
             continue

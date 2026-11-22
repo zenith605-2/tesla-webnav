@@ -198,6 +198,9 @@ def main():
         if not m:
             return None
         A, B = geo(m.group(1), la, lo), geo(m.group(2), la, lo)
+        # 좌표 오류 찾기 (11/22 실차: 양주 옥정에 '교문사거리(구리시청→동구릉역)'): 양쪽 지명이 서로 3km 안(짧은 구간)인데 둘 다 카메라에서 3km 넘게 멀면 좌표가 틀린 것. 고속도로 '(구리→용인)' 같은 도시 방향은 둘 사이가 멀어서 안 걸림
+        if A and B and dkm(*A, *B) < 3 and min(dkm(la, lo, *A), dkm(la, lo, *B)) > 3:
+            BAD.append(f'{round(la, 5)},{round(lo, 5)}')
         if MISS is not None:
             if not A:
                 MISS.append(m.group(1))
@@ -211,6 +214,7 @@ def main():
             return bearing(A, (la, lo))
         return None
 
+    BAD = []
     for k, (la, lo, cname, itlpc) in C.items():
         tb = text_brg(itlpc, la, lo) if itlpc else None
         if tb is not None:
@@ -286,6 +290,8 @@ def main():
         out[k] = int(round(best[1])) % 360
         stat['oneway'] += 1
     OUT.write_text(json.dumps(out, separators=(',', ':')))
+    (ROOT / 'tools/cam_bad.json').write_text(json.dumps(sorted(set(BAD)), ensure_ascii=False, indent=0))
+    print('좌표 오류로 뺄 카메라', len(set(BAD)))
     if MISS is not None:
         from collections import Counter
         (ROOT / 'data/osm/miss.txt').write_text('\n'.join(f'{n}\t{c}' for n, c in Counter(MISS).most_common()))
