@@ -10,7 +10,7 @@
      - 양방향 도로: 점수 계산에만 쓰고 방향은 정하지 않음(-1). 좌표가 반대편으로 벗어난 카메라가 있어서 (만삼로 사례)
   3) 점수 = 거리 + 도로 이름이 다르면 벌점 + 램프(_link)·골목 벌점. 1등과 2등의 방향이 45° 넘게 다르고
      점수 차가 작으면(교차로 모서리 등) 판단 안 함(-1).
-  4) 결과: data/osm/cam_dir.json {"위도,경도": 방위각 또는 -1}  → build_cams.py 가 8번째 칸으로 붙인다.
+  4) 결과: tools/cam_dir.json {"위도,경도": 방위각 또는 -1}  → build_cams.py 가 8번째 칸으로 붙인다.
 
 실행: .venv/bin/python tools/build_cam_dir.py   (data/osm/south-korea-latest.osm.pbf 필요, Geofabrik)
 지도 데이터 © OpenStreetMap contributors (ODbL)
@@ -26,7 +26,7 @@ import osmium
 
 ROOT = Path(__file__).resolve().parent.parent
 PBF = ROOT / 'data/osm/south-korea-latest.osm.pbf'
-OUT = ROOT / 'data/osm/cam_dir.json'
+OUT = ROOT / 'tools/cam_dir.json'
 R_SEARCH = 45.0
 ROADS = {'motorway': 0, 'trunk': 0, 'primary': 0, 'secondary': 0, 'tertiary': 0, 'unclassified': 2,
          'residential': 4, 'living_street': 6,

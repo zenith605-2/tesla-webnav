@@ -2,7 +2,7 @@
 
 입력: data/raw/cameras_all.json (data.go.kr 15028200)
 출력: 지정한 경로에 [위도, 경도, 제한속도, 종류, 구간, 보호구역, 도로이름, 단속방향] 배열
-  단속방향: 찍는 차의 진행 방위각(0~359), 모르면 -1. tools/build_cam_dir.py 가 오픈스트리트맵으로 계산한 data/osm/cam_dir.json (11/21)
+  단속방향: 찍는 차의 진행 방위각(0~359), 모르면 -1. tools/build_cam_dir.py 가 오픈스트리트맵으로 계산한 tools/cam_dir.json (11/21)
   도로이름: 그 카메라가 단속하는 도로(ROAD_ROUTE_NM). 교차로에서 옆길을 찍는 카메라를 거르는 데 씀 (11/21)
   종류: 'S' 과속, 'X' 신호+과속, 'R' 신호만(제한속도 없음)
   단속구분 4 이면서 제한속도 없음 = 주정차 등 기타 단속으로 보고 뺀다
@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main(out_path):
     raw = json.load(open(ROOT / 'data/raw/cameras_all.json', encoding='utf-8'))
-    dp = ROOT / 'data/osm/cam_dir.json'
+    dp = ROOT / 'tools/cam_dir.json'
     DIR = json.load(open(dp)) if dp.exists() else {}
     out, seen = [], set()
     for x in raw:
