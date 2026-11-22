@@ -116,15 +116,21 @@ export default {
         let b = [];
         try { b = await req.json(); } catch { return json({ error: 'bad' }, 400, h); }
         if (!Array.isArray(b) || b.length > 200) return json({ error: 'bad' }, 400, h);
-        for (const [k, v] of b) {
+        for (const [k, v, fla, flo] of b) {
           if (!/^-?\d+\.\d+,-?\d+\.\d+$/.test(String(k))) continue;
-          if (['both', 'none', 'badpos'].includes(v) || (Number.isFinite(+v) && +v >= 0 && +v < 360)) cur[k] = { v: typeof v === 'string' && isNaN(+v) ? v : +v, at: kst() };
+          if (['both', 'none', 'badpos'].includes(v) || (Number.isFinite(+v) && +v >= 0 && +v < 360)) {
+            const o = { v: typeof v === 'string' && isNaN(+v) ? v : +v, at: kst() };
+            // 지도에서 고친 실제 위치(원래 좌표에서 1km 안만)
+            const [kla, klo] = String(k).split(',').map(Number);
+            if (Number.isFinite(+fla) && Number.isFinite(+flo) && Math.abs(fla - kla) < 0.01 && Math.abs(flo - klo) < 0.012) o.fix = [+(+fla).toFixed(6), +(+flo).toFixed(6)];
+            cur[k] = o;
+          }
         }
         await env.KV.put('camdir_all', JSON.stringify(cur));
         return json({ ok: true, n: Object.keys(cur).length }, 200, h);
       }
       const out = {};
-      for (const [k, o] of Object.entries(cur)) out[k] = o.v;
+      for (const [k, o] of Object.entries(cur)) out[k] = o.fix ? { v: o.v, fix: o.fix } : o.v;
       return json(out, 200, h);
     }
     if (path.startsWith('cctv2/')) {

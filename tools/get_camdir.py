@@ -8,4 +8,6 @@ ROOT = Path(__file__).resolve().parent.parent
 TOK = (ROOT / '.log_token').read_text().strip()
 d = json.loads(urllib.request.urlopen(urllib.request.Request('https://tsnavi-relay.zenithworks.workers.dev/camdir', headers={'x-log': TOK, 'User-Agent': 'tsnavi-tools'}), timeout=30).read())
 (ROOT / 'tools/cam_checked.json').write_text(json.dumps(d, ensure_ascii=False, indent=0))
-print('확인 결과', len(d), '곳 (방향', sum(1 for v in d.values() if isinstance(v, (int, float))), '· 없음', sum(1 for v in d.values() if v == 'none'), '· 양방향', sum(1 for v in d.values() if v == 'both'), ')')
+vals = [x['v'] if isinstance(x, dict) else x for x in d.values()]
+print('위치 고침', sum(1 for x in d.values() if isinstance(x, dict)))
+print('확인 결과', len(d), '곳 (방향', sum(1 for v in vals if isinstance(v, (int, float))), '· 없음', sum(1 for v in vals if v == 'none'), '· 양방향', sum(1 for v in vals if v == 'both'), ')')

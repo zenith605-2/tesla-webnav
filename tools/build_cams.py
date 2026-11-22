@@ -63,6 +63,10 @@ def main(out_path):
         keep = []
         for c in out:
             v = CHK.get(f'{c[0]},{c[1]}')
+            if isinstance(v, dict):  # 지도에서 고친 실제 위치 (11/22)
+                if v.get('fix'):
+                    c[0], c[1] = round(v['fix'][0], 5), round(v['fix'][1], 5)
+                v = v.get('v')
             if v == 'none':
                 continue
             if isinstance(v, (int, float)):
