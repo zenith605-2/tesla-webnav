@@ -49,6 +49,12 @@ def main(out_path):
         seen.add(key)
         road = (x.get('ROAD_ROUTE_NM') or '').strip().replace(' ', '')
         out.append([round(la, 5), round(lo, 5), lim, kind, sec, zone, road, DIR.get(f'{round(la, 5)},{round(lo, 5)}', -1)])
+    # 직접 확인한 카메라(tools/cam_extra.json): 경찰청 자료에 아직 없는 새 카메라. 같은 자리(30m)·같은 속도가 자료에 들어오면 자동으로 빠짐 (11/22)
+    ep = ROOT / 'tools/cam_extra.json'
+    for e in (json.load(open(ep, encoding='utf-8')) if ep.exists() else []):
+        if any(abs(c[0] - e['la']) < 0.0003 and abs(c[1] - e['lo']) < 0.0004 and c[2] == e['lim'] for c in out):
+            continue
+        out.append([e['la'], e['lo'], e['lim'], e.get('kind', 'S'), 0, e.get('zone', 0), e.get('road', ''), e.get('dir', -1)])
     body = json.dumps(out, separators=(',', ':'))
     Path(out_path).write_text(body, encoding='utf-8')
     ref = max((x.get('REFERENCE_DATE') or '') for x in raw)
