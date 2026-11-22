@@ -84,6 +84,11 @@ export class Counter {
     return Response.json(out);
   }
 }
+// 무료 한도의 마지막 10%는 주인 차(x-log = LOG 키) 몫으로 남긴다 (11/22). 공개 이용자는 90%에서 멈춤
+const PUBLIC_SHARE = 0.9;
+function isOwner(req, env) { return !!env.LOG && req.headers.get('x-log') === env.LOG; }
+async function usedToday(env) { try { return await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/get?d=' + kst().slice(0, 10))).json(); } catch { return {}; } }
+const BUSY = '오늘은 이용자가 많아 무료 길 안내 한도(LIMIT)를 다 썼습니다';
 function count(env, ctx, k, dkey) {
   if (!env.CNT) return;
   const stub = env.CNT.get(env.CNT.idFromName('day'));
@@ -109,7 +114,9 @@ export default {
       let used = { routes: 0, traffic: 0, match: 0 };
       try { used = await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/get?d=' + kst().slice(0, 10))).json(); } catch { /* 없으면 0 */ }
       used.naverMonth = await naverUsed(env);
-      return new Response(JSON.stringify({ date: kst().slice(0, 10), used, limit: { ...QUOTA, naverMonth: NAVER_MONTH } }), { headers: { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=30' } });
+      const f = isOwner(req, env) ? 1 : PUBLIC_SHARE, lim = {};
+      for (const [k, v] of Object.entries({ ...QUOTA, naverMonth: NAVER_MONTH })) lim[k] = Math.floor(v * f);
+      return new Response(JSON.stringify({ date: kst().slice(0, 10), used, limit: lim }), { headers: { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=30' } });
     }
 
     if (path.startsWith('admin/')) {
@@ -250,7 +257,7 @@ export default {
       if (overDay(ip, 'kakao')) return json({ error: '오늘 한도(LIMIT)를 넘었습니다' }, 429, h);
       try {
         const used = await (await env.CNT.get(env.CNT.idFromName('day')).fetch('https://cnt/get?d=' + kst().slice(0, 10))).json();
-        if ((used.kakao || 0) >= QUOTA.kakao) return json({ error: '오늘 카카오 무료 한도(LIMIT)를 다 썼습니다' }, 429, h);
+        if ((used.kakao || 0) >= QUOTA.kakao * (isOwner(req, env) ? 1 : PUBLIC_SHARE)) return json({ error: BUSY, busy: 1 }, 429, h);
       } catch { /* 카운터 실패해도 진행 */ }
       const q = new URLSearchParams();
       for (const k of ['origin', 'destination', 'waypoints', 'priority', 'car_fuel', 'avoid', 'alternatives', 'road_details', 'summary']) { const v = url.searchParams.get(k); if (v) q.set(k, v); }
@@ -263,7 +270,7 @@ export default {
     if (path === 'naver/driving') {
       if (!env.NAVER_ID || !env.NAVER_SECRET) return json({ error: '서버에 네이버 키가 없습니다' }, 503, h);
       if (overDay(ip, 'naver')) return json({ error: '오늘 한도(LIMIT)를 넘었습니다' }, 429, h);
-      if ((await naverUsed(env)) >= NAVER_MONTH) return json({ error: '이번 달 네이버 무료 한도(LIMIT)를 다 썼습니다' }, 429, h);
+      if ((await naverUsed(env)) >= NAVER_MONTH * (isOwner(req, env) ? 1 : PUBLIC_SHARE)) return json({ error: BUSY, busy: 1 }, 429, h);
       const q = new URLSearchParams();
       for (const k of ['start', 'goal', 'waypoints', 'option', 'cartype', 'fueltype', 'lang']) { const v = url.searchParams.get(k); if (v) q.set(k, v); }
       count(env, ctx, 'naver', kst().slice(0, 7));
@@ -276,6 +283,7 @@ export default {
       if (!TMAP_PATHS.has(p) && !/^pois\/\d+$/.test(p)) return json({ error: '허용되지 않은 경로' }, 404, h);
       if (IP_DAY[p] && overDay(ip, p)) return json({ error: '오늘 한도(LIMIT)를 넘었습니다' }, 429, h);
       if (!env.TMAP_KEY) return json({ error: '서버에 티맵 키가 없습니다' }, 503, h);
+      if (p === 'routes' || p === 'routes/prediction') { const u = await usedToday(env); if ((u.routes || 0) >= QUOTA.routes * (isOwner(req, env) ? 1 : PUBLIC_SHARE)) return json({ error: BUSY, busy: 1 }, 429, h); }
       const fwd = { Accept: 'application/json', appKey: env.TMAP_KEY };
       const init = { method: req.method === 'POST' ? 'POST' : 'GET', headers: fwd };
       if (init.method === 'POST') { fwd['Content-Type'] = req.headers.get('content-type') || 'application/json'; init.body = await req.text(); }
