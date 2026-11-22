@@ -14,6 +14,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python tools/fetch_cams.py
+      - name: 기관별 최신 파일로 합본 갱신 (합본이 늦게 따라감)
+        run: python tools/std_parts.py || echo "std_parts 실패"
       - run: python tools/build_cams.py docs/cams.json
       - name: 과속방지턱·슈퍼차저·휴게소 (실패해도 카메라 갱신은 계속)
         run: python tools/build_extra.py docs || echo "extra 실패"
