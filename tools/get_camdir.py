@@ -1,5 +1,5 @@
 """방향 확인 도구(tsnavi/check.html) 결과를 받아 tools/cam_checked.json 으로 저장 (11/22).
-build_cams.py 가 씀: 숫자 = 사람이 로드뷰로 본 단속 방향(무엇보다 우선), 'none' = 카메라 없음(뺌), 'both' = 양방향(방향 -1 유지).
+build_cams.py 가 씀: 숫자 = 사람이 로드뷰로 본 단속 방향(무엇보다 우선), 'none' = 카메라 없음(뺌), 'both' = 양방향(방향 -1 유지), 'badpos' = 좌표가 길 위가 아님(아직 그대로 둠, 목록만).
 사용: python3 tools/get_camdir.py   (필요: .log_token)
 """
 import json, urllib.request

@@ -118,7 +118,7 @@ export default {
         if (!Array.isArray(b) || b.length > 200) return json({ error: 'bad' }, 400, h);
         for (const [k, v] of b) {
           if (!/^-?\d+\.\d+,-?\d+\.\d+$/.test(String(k))) continue;
-          if (v === 'both' || v === 'none' || (Number.isFinite(+v) && +v >= 0 && +v < 360)) cur[k] = { v: v === 'both' || v === 'none' ? v : +v, at: kst() };
+          if (['both', 'none', 'badpos'].includes(v) || (Number.isFinite(+v) && +v >= 0 && +v < 360)) cur[k] = { v: typeof v === 'string' && isNaN(+v) ? v : +v, at: kst() };
         }
         await env.KV.put('camdir_all', JSON.stringify(cur));
         return json({ ok: true, n: Object.keys(cur).length }, 200, h);
