@@ -174,6 +174,14 @@ def main():
         if not locs and name in GENERIC:
             locs, lim = h.generic.get(name, []), 20
         if not locs:
+            # 학교 줄임말 (11/22 실차: '옥빛중->옥빛고교' 를 못 찾아 방향 모름 → 반대편 차선 경고)
+            for pat, rep in ((r'초교$', '초등학교'), (r'초$', '초등학교'), (r'여중$', '여자중학교'), (r'중교$', '중학교'), (r'중$', '중학교'),
+                             (r'여고$', '여자고등학교'), (r'고교$', '고등학교'), (r'고$', '고등학교')):
+                if re.search(pat, name):
+                    locs = h.names.get(re.sub(pat, rep, name)) or []
+                    if locs:
+                        break
+        if not locs:
             for suf in ('시청', '군청', '시', '군', '읍', '면', '동'):
                 locs = h.names.get(name + suf) or []
                 if locs:
