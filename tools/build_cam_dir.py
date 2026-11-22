@@ -34,10 +34,14 @@ ROADS = {'motorway': 0, 'trunk': 0, 'primary': 0, 'secondary': 0, 'tertiary': 0,
 CELL = 0.001  # 약 100m
 GENERIC = ('시청', '군청', '구청', '도청', '경찰서', '터미널', '교육청', '우체국', '면사무소', '행정복지센터', '주민센터', '공항', '종합운동장', '보건소', '소방서', '법원', '세무서', '역', 'IC', '톨게이트', '휴게소', '읍사무소')
 MISS = [] if '--miss' in sys.argv else None  # 못 찾은 지명 보기
+_tg = Path(__file__).resolve().parent.parent / 'data/osm/tmap_geo.json'
+TG = json.load(open(_tg)) if _tg.exists() else {}  # '지명|위도0.1|경도0.1' → [위도, 경도] 또는 None(검색해도 없음)
+NEED = set()  # 아직 티맵에 물어보지 않은 지명
 
 
 def cams():
-    raw = json.load(open(ROOT / 'data/raw/cameras_all.json', encoding='utf-8'))
+    from cam_sources import load_raw  # 경찰청 + 경기도 추가분 (11/22)
+    raw = load_raw()
     out = {}
     for x in raw:
         try:
@@ -191,16 +195,25 @@ def main():
             d = dkm(la, lo, *p)
             if d < lim and (best is None or d < best[0]):
                 best = (d, p)
-        return best[1] if best else None
+        if best:
+            return best[1]
+        # 오픈스트리트맵에 없는 지명(아파트·건물 등)은 티맵 장소 검색 결과(tools/geo_tmap.py 가 만든 data/osm/tmap_geo.json)로 (11/22)
+        tk = f'{name}|{round(la, 1)}|{round(lo, 1)}'
+        if TG.get(tk):
+            return tuple(TG[tk])
+        if tk not in TG:
+            NEED.add(tk)
+        return None
 
     def text_brg(txt, la, lo):
         m = re.search(r'([가-힣A-Za-z0-9]+)\s*(?:->|→|⇒|=>|>)\s*([가-힣A-Za-z0-9]+)', txt)
         if not m:
             return None
         A, B = geo(m.group(1), la, lo), geo(m.group(2), la, lo)
-        # 좌표 오류 찾기 (11/22 실차: 양주 옥정에 '교문사거리(구리시청→동구릉역)'): 양쪽 지명이 서로 3km 안(짧은 구간)인데 둘 다 카메라에서 3km 넘게 멀면 좌표가 틀린 것. 고속도로 '(구리→용인)' 같은 도시 방향은 둘 사이가 멀어서 안 걸림
+        # 설명 글 오류 찾기 (11/22 실차: 양주 옥정 카메라에 '교문사거리(구리시청→동구릉역)'): 양쪽 지명이 서로 3km 안(짧은 구간)인데 둘 다 카메라에서 3km 넘게 멀면 좌표가 틀린 것. 고속도로 '(구리→용인)' 같은 도시 방향은 둘 사이가 멀어서 안 걸림
         if A and B and dkm(*A, *B) < 3 and min(dkm(la, lo, *A), dkm(la, lo, *B)) > 3:
             BAD.append(f'{round(la, 5)},{round(lo, 5)}')
+            return None  # 설명 글이 다른 동네 것 → 글로 방향을 정하지 않음 (카메라는 남김: 경기도 자료·로드뷰로 보니 좌표는 맞고 글만 틀린 경우였음)
         if MISS is not None:
             if not A:
                 MISS.append(m.group(1))
@@ -290,8 +303,10 @@ def main():
         out[k] = int(round(best[1])) % 360
         stat['oneway'] += 1
     OUT.write_text(json.dumps(out, separators=(',', ':')))
+    (ROOT / 'data/osm/tmap_need.json').write_text(json.dumps(sorted(NEED), ensure_ascii=False))
+    print('티맵에 물어볼 지명', len(NEED))
     (ROOT / 'tools/cam_bad.json').write_text(json.dumps(sorted(set(BAD)), ensure_ascii=False, indent=0))
-    print('좌표 오류로 뺄 카메라', len(set(BAD)))
+    print('설명 글이 다른 동네라 글 방향을 안 쓴 카메라', len(set(BAD)))
     if MISS is not None:
         from collections import Counter
         (ROOT / 'data/osm/miss.txt').write_text('\n'.join(f'{n}\t{c}' for n, c in Counter(MISS).most_common()))

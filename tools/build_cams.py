@@ -19,11 +19,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main(out_path):
-    raw = json.load(open(ROOT / 'data/raw/cameras_all.json', encoding='utf-8'))
+    from cam_sources import load_raw  # 경찰청 + 경기도 추가분 (11/22)
+    raw = load_raw()
     dp = ROOT / 'tools/cam_dir.json'
     DIR = json.load(open(dp)) if dp.exists() else {}
-    bp = ROOT / 'tools/cam_bad.json'  # 좌표가 다른 동네로 잘못 들어간 카메라 (build_cam_dir.py 가 만듦, 11/22)
-    BADK = set(json.load(open(bp))) if bp.exists() else set()
     out, seen = [], set()
     for x in raw:
         try:
@@ -45,8 +44,6 @@ def main(out_path):
             kind = 'S'
         sec = {'1': 1, '01': 1, '2': 2, '02': 2}.get(x['REGLT_SCTN_LC_SE'].strip(), 0)
         zone = {'2': 2, '02': 2, '1': 1, '01': 1}.get(x['PRTCAREA_TYPE'].strip(), 0)
-        if f'{round(la, 5)},{round(lo, 5)}' in BADK:
-            continue
         key = (round(la, 5), round(lo, 5), lim, sec)
         if key in seen:
             continue
@@ -56,7 +53,11 @@ def main(out_path):
     # 직접 확인한 카메라(tools/cam_extra.json): 경찰청 자료에 아직 없는 새 카메라. 같은 자리(30m)·같은 속도가 자료에 들어오면 자동으로 빠짐 (11/22)
     ep = ROOT / 'tools/cam_extra.json'
     for e in (json.load(open(ep, encoding='utf-8')) if ep.exists() else []):
-        if any(abs(c[0] - e['la']) < 0.0003 and abs(c[1] - e['lo']) < 0.0004 and c[2] == e['lim'] for c in out):
+        same = [c for c in out if abs(c[0] - e['la']) < 0.0003 and abs(c[1] - e['lo']) < 0.0004 and c[2] == e['lim']]
+        if same:
+            for c in same:  # 직접 확인한 방향이 있으면 그걸로 (예: 로드뷰로 본 옥정로2길 서쪽 전용)
+                if e.get('dir', -1) >= 0:
+                    c[7] = e['dir']
             continue
         out.append([e['la'], e['lo'], e['lim'], e.get('kind', 'S'), 0, e.get('zone', 0), e.get('road', ''), e.get('dir', -1)])
     body = json.dumps(out, separators=(',', ':'))
