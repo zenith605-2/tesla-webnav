@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.zenith.tsnavi-koroad</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>/Users/zenith/Game_Project/tesla-webnav/tools/koroad_monthly.sh</string></array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Day</key><integer>25</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>30</integer></dict>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>StandardErrorPath</key><string>/Users/zenith/Game_Project/tesla-webnav/data/koroad_monthly.err</string>
+</dict>
+</plist>

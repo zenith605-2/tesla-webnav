@@ -100,27 +100,39 @@ def landmark(loc):
 
 rows = []
 for f in sorted(glob.glob(str(ROOT / 'data/raw/koroad/*.xlsx'))):
-    wb = openpyxl.load_workbook(f, read_only=True)
+    wb = openpyxl.load_workbook(f, read_only=False)  # read_only 는 범위 정보 없는 파일(2026-04)에서 0줄
     for ws in wb.worksheets:
         reg = REG.get(ws.title.strip(), ws.title.strip())
+        col = None
         for r in ws.iter_rows(values_only=True):
-            if not r or not isinstance(r[0], (int, float)) or len(r) < 7: continue
-            act = str(r[1] or '')
+            if not r: continue
+            if r[0] in ('연번', '번호'):  # 머리줄 이름으로 칸 찾기 (2020년 파일은 '지역' 칸이 더 있음)
+                col = {str(v).strip(): k for k, v in enumerate(r) if v}
+                continue
+            if col is None or not isinstance(r[0], (int, float)): continue
+            g = lambda *ns: next((r[col[n]] for n in ns if n in col and col[n] < len(r)), None)
+            act = str(g('구분') or '')
             act = 'new' if ('신규' in act or '신설' in act) else 'move' if ('이전' in act or '이설' in act) else 'speed' if '속도' in act else 'other'
-            lims = re.findall(r'\d+', str(r[4] or ''))
-            rows.append({'id': str(r[2] or '').strip(), 'act': act, 'form': str(r[3] or ''), 'lim': int(lims[-1]) if lims else 0,
-                         'loc': str(r[5] or ''), 'date': day(r[6]), 'zone': str(r[8] or '') if len(r) > 8 else '', 'reg': reg, 'file': Path(f).name})
+            lims = re.findall(r'\d+', str(g('제한속도') or ''))
+            rg = REG.get(str(g('지역') or '').strip(), reg) if '지역' in col else reg
+            rows.append({'id': str(g('장비번호') or '').strip(), 'act': act, 'form': str(g('단속형태') or ''), 'lim': int(lims[-1]) if lims else 0,
+                         'loc': str(g('설치장소(방향)', '설치장소') or ''), 'date': day(g('실단속개시일', '단속개시일')), 'zone': str(g('도로정보') or ''),
+                         'reg': rg, 'file': Path(f).name})
 rows.sort(key=lambda x: x['date'])
 last = {}
 for x in rows:
     if x['id']: last[x['id']] = x  # 같은 장비는 가장 최근 줄만
 
+# 2024년 이전 '신규'인데 지금 표준데이터에 없으면 철거·장비번호 변경으로 봄 (2024-08 목록 197대 중 196대가 표준데이터에 있음 = 보통은 반영됨)
+NEW_FROM = '2025-01-01'
 out, rep, st = [], [], {}
 for eid, x in last.items():
     raw = BY.get(eid)
     rd = (raw or {}).get('REFERENCE_DATE') or ''
     need = None
-    if raw is None and x['act'] in ('new', 'move', 'other'): need = 'new'
+    if raw is None and x['act'] in ('new', 'move', 'other') and x['date'] >= NEW_FROM: need = 'new'
+    elif raw is None and x['act'] in ('new', 'move', 'other'):
+        st['옛 신규(철거·번호변경 추정, 안 넣음)'] = st.get('옛 신규(철거·번호변경 추정, 안 넣음)', 0) + 1; continue
     elif raw is not None and x['act'] == 'move' and rd < x['date']: need = 'move'
     elif raw is not None and x['act'] == 'speed' and rd < x['date'] and str(raw.get('LMTT_VE')).strip() != str(x['lim']): need = 'speed'
     if not need:
