@@ -185,7 +185,7 @@ export default {
       if (overDay(ip, 'camfix')) return json({ error: '오늘은 더 보낼 수 없습니다' }, 429, h);
       let b = {};
       try { b = await req.json(); } catch { return json({ error: 'bad' }, 400, h); }
-      const kind = b.kind === 'add' || b.kind === 'wrong' ? b.kind : null;
+      const kind = ['add', 'wrong', 'odd', 'miss'].includes(b.kind) ? b.kind : null; // odd=경고 카드 [이상해요], miss=메뉴 [카메라 놓침] (11/22)
       const la = +b.la, lo = +b.lo;
       if (!kind || !isFinite(la) || !isFinite(lo) || la < 33 || la > 39 || lo < 124 || lo > 132) return json({ error: 'bad' }, 400, h);
       const cam = b.cam && isFinite(b.cam.la) && isFinite(b.cam.lo) ? { la: +(+b.cam.la).toFixed(5), lo: +(+b.cam.lo).toFixed(5), lim: +b.cam.lim || 0, dir: isFinite(b.cam.dir) ? +b.cam.dir : -1 } : null;
