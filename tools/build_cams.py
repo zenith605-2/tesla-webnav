@@ -50,6 +50,12 @@ def main(out_path):
         seen.add(key)
         road = (x.get('ROAD_ROUTE_NM') or '').strip().replace(' ', '')
         out.append([round(la, 5), round(lo, 5), lim, kind, sec, zone, road, DIR.get(f'{round(la, 5)},{round(lo, 5)}', -1)])
+    # 주행 기록으로 배운 방향(tools/learn_dir.py → cam_learned.json): 방향 모르는(-1) 카메라에만 (11/22)
+    lp = ROOT / 'tools/cam_learned.json'
+    LEARN = json.load(open(lp)) if lp.exists() else {}
+    for c in out:
+        if c[7] == -1 and f'{c[0]},{c[1]}' in LEARN:
+            c[7] = LEARN[f'{c[0]},{c[1]}']
     # 직접 확인한 카메라(tools/cam_extra.json): 경찰청 자료에 아직 없는 새 카메라. 같은 자리(30m)·같은 속도가 자료에 들어오면 자동으로 빠짐 (11/22)
     ep = ROOT / 'tools/cam_extra.json'
     for e in (json.load(open(ep, encoding='utf-8')) if ep.exists() else []):
