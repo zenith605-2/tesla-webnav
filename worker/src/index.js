@@ -222,7 +222,38 @@ export default {
         JSON.stringify({ at: t, kind, la: +la.toFixed(5), lo: +lo.toFixed(5), lim: Number.isInteger(+b.lim) && +b.lim >= 0 && +b.lim <= 130 ? +b.lim : null,
           h: b.h != null && isFinite(b.h) ? Math.round(b.h) % 360 : null, hOk: !!b.hOk, kmh: isFinite(b.kmh) ? Math.round(b.kmh) : null, cam, ver: String(b.ver || '').slice(0, 40), src: String(b.src || '').slice(0, 10), limSrc: b.limSrc === 'road' ? 'road' : null, doubt }), // src qc = 왼쪽 카메라 버튼, limSrc road = 그 순간 도로 제한속도 (11/22)
         { expirationTtl: 60 * 60 * 24 * 365 });
+      // 11/23 사용자 '공용 데이터로 바로': 신고를 한 칸(cfx_all)에 모아 /community 로 모든 차에 내려줌. IP 는 저장 안 하고 해시만(같은 사람 여러 번 세지 않기용)
+      if (kind === 'add' || kind === 'wrong') {
+        const lim1 = Number.isInteger(+b.lim) ? +b.lim : 0;
+        const ok = kind === 'wrong' ? !!cam : (lim1 >= 20 && lim1 <= 120 && !doubt && b.hOk && b.h != null && isFinite(b.h));
+        if (ok) {
+          const hb = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('tsn|' + ip));
+          const who = [...new Uint8Array(hb)].slice(0, 6).map((x) => x.toString(16).padStart(2, '0')).join('');
+          let all = [];
+          try { all = JSON.parse((await env.KV.get('cfx_all')) || '[]'); } catch {}
+          const day = Date.now();
+          all = all.filter((e) => day - e[6] < 1000 * 60 * 60 * 24 * 120).slice(-1500);
+          all.push(kind === 'add' ? ['a', +la.toFixed(5), +lo.toFixed(5), lim1, Math.round(b.h) % 360, who, day] : ['w', cam.la, cam.lo, cam.lim, cam.dir, who, day]);
+          await env.KV.put('cfx_all', JSON.stringify(all));
+        }
+      }
       return json({ ok: true }, 200, h);
+    }
+
+    if (path === 'community') {
+      // 모두에게 보이는 신고: 있음 → 바로 카메라(같은 자리 40m·같은 제한속도는 하나로), 없음 → 서로 다른 2명 이상일 때만 숨김(진짜 카메라를 한 사람이 지우지 못하게)
+      let all = [];
+      try { all = JSON.parse((await env.KV.get('cfx_all', { cacheTtl: 60 })) || '[]'); } catch {}
+      const add = [], hideW = {};
+      const dm = (a1, o1, a2, o2) => Math.hypot((o2 - o1) * Math.cos(a1 * Math.PI / 180) * 111320, (a2 - a1) * 111320);
+      for (const e of all) {
+        if (e[0] === 'a') {
+          const q = add.find((x) => x[2] === e[3] && dm(x[0], x[1], e[1], e[2]) < 40);
+          if (q) { if (!q[4].includes(e[5])) q[4].push(e[5]); } else add.push([e[1], e[2], e[3], e[4], [e[5]]]);
+        } else if (e[0] === 'w') { const k = e[1].toFixed(5) + '_' + e[2].toFixed(5); (hideW[k] = hideW[k] || new Set()).add(e[5]); }
+      }
+      const hide = Object.keys(hideW).filter((k) => hideW[k].size >= 2);
+      return new Response(JSON.stringify({ add: add.map((x) => [x[0], x[1], x[2], x[3], x[4].length]), hide }), { headers: { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=60' } });
     }
 
     if (path === 'log' && req.method === 'POST') {
