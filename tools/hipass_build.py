@@ -5,7 +5,7 @@
 키: .ex_key 가 있으면 그것, 없으면 예시 키 test (서비스용은 data.ex.co.kr 무료 키로 바꾸기).
 민자고속도로 영업소는 자료에 없음.
 출력 docs/hipass.json: [[위도, 경도, 이름, 'C'(폐쇄식)|'O'(개방식), {방향: 차로문자열}], ...]
-  방향: 입구·출구 (폐쇄식) / 가는 방향 이름 (개방식, 상행·하행 포함) → 개방식은 dirs 에 [위도,경도] 도 붙임
+  방향: 입구·출구 (폐쇄식), 갈래 영업소는 '입구|강릉' 처럼 갈래 방면이 붙음, / 가는 방향 이름 (개방식, 상행·하행 포함) → 개방식은 dirs 에 [위도,경도] 도 붙임
   차로 문자열 한 글자 = 한 차로 (1차로부터): H 하이패스, M 다차로 하이패스, B 하이패스+현금, T 현금, F 화물 하이패스, G 화물 현금, S 정산기, X 미운영
 매달 koroad_monthly.sh 에서 실행.
 """
@@ -74,7 +74,13 @@ for r in lanes:
     key = (round(la, 5), round(lo, 5))
     e = out.setdefault(key, [key[0], key[1], k, 'O' if r.get('crgwKindNm') == '개방식' else 'C', {}])
     dn = (r.get('crgwDrnm') or '').strip()
-    e[4][dn] = s
+    # 갈래 영업소 (11/23 사용자: 톨게이트가 두 갈래로 갈리는 곳): '동군포(강릉)'·'동군포(인천)' 처럼 괄호가 갈래 방면 → 방향 키에 '|강릉' 을 붙임
+    m = re.search(r'\((.*?)\)', nm)
+    lab = m.group(1).strip() if m else ''
+    if lab in ('개방식', '신규') or lab.startswith('본'): lab = ''
+    k2 = dn + ('|' + lab if lab else '')
+    if k2 in e[4] and not lab: continue
+    e[4][k2] = s
 res = list(out.values())
 # 상행 반대쪽(하행)은 서울에서 먼 쪽: 좌표 없이 남겨 두면 화면에서 상행이 아니면 하행
 (ROOT / 'docs/hipass.json').write_text(json.dumps({'tg': res, 'dirc': DIRC}, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
