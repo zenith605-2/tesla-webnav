@@ -11,8 +11,9 @@ LOG=data/koroad_monthly.log
   python3 tools/local_fetch.py | tail -1
   python3 tools/local_merge.py
   python3 tools/build_cams.py docs/cams.json | tail -1
-  if ! git diff --quiet -- tools/cam_koroad.json tools/cam_local.json docs/cams.json docs/cams-ver.json; then
-    git add tools/cam_koroad.json tools/cam_local.json docs/cams.json docs/cams-ver.json
+  python3 tools/hipass_build.py | cut -c1-120
+  if ! git diff --quiet -- tools/cam_koroad.json tools/cam_local.json docs/cams.json docs/cams-ver.json docs/hipass.json; then
+    git add tools/cam_koroad.json tools/cam_local.json docs/cams.json docs/cams-ver.json docs/hipass.json
     git commit -qm "공단 월별 단속카메라 목록 자동 반영 ($(date +%Y-%m))"
     git push -q && echo "올림"
   else
