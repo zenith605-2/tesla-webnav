@@ -108,6 +108,14 @@ export default {
     const path = url.pathname.replace(/^\/+/, '');
     const ip = req.headers.get('cf-connecting-ip') || 'x';
 
+    if (path === 'priv/inavi') {
+      // 주인 차 전용 개인 데이터(11/25 사용자 "내 차에서만"): KV priv/inavi 는 data/private/upload.sh 로만 넣는다. 공개 금지
+      if (!isOwner(req, env)) return json({ error: 'forbidden' }, 403, h);
+      const v = await env.KV.get('priv/inavi');
+      if (!v) return json({ error: 'none' }, 404, h);
+      return new Response(v, { headers: { ...h, 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' } });
+    }
+
     if (path === 'camdir') {
       // 카메라 방향 확인 도구(tsnavi/check.html) 결과: {"위도,경도": 방위각|'both'|'none'} 한 칸에 모음. 주인(x-log)만 (11/22)
       if (!isOwner(req, env)) return json({ error: 'forbidden' }, 403, h);
