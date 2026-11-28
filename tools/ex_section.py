@@ -179,6 +179,9 @@ for r in rows:
                     'note': f"도로공사 구간단속 {'시점' if sec == 1 else '종점'} {tag} (OSM {s[2] if sec == 1 else e[2]} 기준, 직선 {round(d)}m)"})
         rep.append(('추가 ' if sec == 1 else '추가(종점) ') + f"{round(p[1],5)},{round(p[2],5)} {lim} " + tag)
 
+# 실차로 없다고 확인된 추정 지점 (11/28: 충주분기점 근처에 반대편 차로로 붙은 충주IC~북충주IC 시점·종점)
+BAD = {(37.0438, 127.73795), (37.04201, 127.74835)}
+add = [e for e in add if (e['la'], e['lo']) not in BAD]
 json.dump(add, open(ROOT / 'tools/cam_ex_sec.json', 'w'), ensure_ascii=False, indent=1)
 (ROOT / 'data/ex_section_report.txt').write_text('\n'.join(rep), encoding='utf-8')
 print(st, '추가', len(add))
